@@ -25,6 +25,9 @@ profile.cov
 go.work
 go.work.sum
 
+# Built binary
+/hist
+
 # env file
 .env
 
