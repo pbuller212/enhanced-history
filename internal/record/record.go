@@ -47,6 +47,9 @@ func Run(args []string, store Inserter) error {
 	}
 
 	epoch := *ts
+	if epoch < 0 {
+		return errors.New("--ts must be a non-negative unix epoch timestamp")
+	}
 	if epoch == 0 {
 		epoch = time.Now().Unix()
 	}

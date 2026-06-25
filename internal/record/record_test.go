@@ -134,3 +134,15 @@ func TestRunEmptySession(t *testing.T) {
 		t.Fatal("expected error for empty --session, got nil")
 	}
 }
+
+func TestRunNegativeTs(t *testing.T) {
+	store := &stubStore{}
+	args := []string{"--cmd", "ls", "--dir", "/tmp", "--session", "sess-1", "--ts", "-1"}
+
+	if err := Run(args, store); err == nil {
+		t.Fatal("expected error for negative --ts, got nil")
+	}
+	if len(store.inserted) != 0 {
+		t.Error("should not insert when validation fails")
+	}
+}

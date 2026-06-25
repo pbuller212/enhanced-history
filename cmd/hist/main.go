@@ -35,6 +35,8 @@ func runRecord(args []string) error {
 			return fmt.Errorf("resolve home dir: %w", err)
 		}
 		dbPath = filepath.Join(home, ".local", "share", "enhanced-history", "hist.db")
+	} else if !filepath.IsAbs(dbPath) {
+		return fmt.Errorf("ENHANCED_HISTORY_DB must be an absolute path, got %q", dbPath)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
