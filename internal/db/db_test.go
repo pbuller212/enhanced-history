@@ -148,3 +148,32 @@ func TestFilterCmdSubstr(t *testing.T) {
 		t.Errorf("expected 2 rows matching 'git', got %d", len(rows))
 	}
 }
+
+func TestFilterLikeWildcardsEscaped(t *testing.T) {
+	db := openTemp(t)
+
+	dirs := []string{"/home/user_projects", "/home/user/projects", "/home/user%all"}
+	for _, d := range dirs {
+		if err := db.Insert(record.Record{Ts: 1, Dir: d, Session: "s", Cmd: "cmd"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// "_" must be matched literally, not as a single-char wildcard.
+	rows, err := db.Query(query.Filter{Dir: "/home/user_"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Dir != "/home/user_projects" {
+		t.Errorf("expected exactly /home/user_projects, got %+v", rows)
+	}
+
+	// "%" must be matched literally, not as a multi-char wildcard.
+	rows, err = db.Query(query.Filter{Dir: "/home/user%"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Dir != "/home/user%all" {
+		t.Errorf("expected exactly /home/user%%all, got %+v", rows)
+	}
+}

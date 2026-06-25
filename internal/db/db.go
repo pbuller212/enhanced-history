@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"enhanced-history/internal/query"
 	"enhanced-history/internal/record"
@@ -66,6 +67,14 @@ func (d *DB) Insert(r record.Record) error {
 	return nil
 }
 
+// escapeLike escapes SQLite LIKE special characters so the value is treated literally.
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, "%", `\%`)
+	s = strings.ReplaceAll(s, "_", `\_`)
+	return s
+}
+
 // Query returns history rows matching all non-zero fields of f, ordered by ts ASC.
 func (d *DB) Query(f query.Filter) ([]record.Record, error) {
 	q := `SELECT id, ts, dir, session, cmd FROM history WHERE 1=1`
@@ -80,16 +89,16 @@ func (d *DB) Query(f query.Filter) ([]record.Record, error) {
 		args = append(args, f.TsTo)
 	}
 	if f.Dir != "" {
-		q += ` AND dir LIKE ? || '%'`
-		args = append(args, f.Dir)
+		q += ` AND dir LIKE ? || '%' ESCAPE '\'`
+		args = append(args, escapeLike(f.Dir))
 	}
 	if f.Session != "" {
 		q += ` AND session = ?`
 		args = append(args, f.Session)
 	}
 	if f.CmdSubstr != "" {
-		q += ` AND cmd LIKE '%' || ? || '%'`
-		args = append(args, f.CmdSubstr)
+		q += ` AND cmd LIKE '%' || ? || '%' ESCAPE '\'`
+		args = append(args, escapeLike(f.CmdSubstr))
 	}
 
 	q += ` ORDER BY ts ASC`
