@@ -166,3 +166,59 @@ func TestRunEmptyResults(t *testing.T) {
 		t.Errorf("expected empty output for no results, got %q", buf.String())
 	}
 }
+
+func TestRunFullFlag(t *testing.T) {
+	// Ts=0 => 1970-01-01 00:00 UTC
+	store := &stubQuerier{rows: []record.Record{
+		{ID: 42, Ts: 0, Dir: "/home/user", Session: "abc-123", Cmd: "ls -la"},
+	}}
+	var buf bytes.Buffer
+
+	if err := Run([]string{"--full"}, store, &buf); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got := buf.String()
+	want := "   42  ls -la   /home/user   1970-01-01 00:00   abc-123\n"
+	if got != want {
+		t.Errorf("full output format:\n got  %q\n want %q", got, want)
+	}
+}
+
+func TestRunFullFlagComposesWithFilters(t *testing.T) {
+	store := &stubQuerier{rows: sampleRows}
+	var buf bytes.Buffer
+
+	args := []string{"--full", "--since", "2026-06-01", "--dir", "/home", "--session", "s1", "--search", "ls"}
+	if err := Run(args, store, &buf); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// All filter fields must still be passed to the store
+	if store.got.TsFrom == 0 {
+		t.Error("TsFrom should be set")
+	}
+	if store.got.Dir != "/home" {
+		t.Errorf("Dir: got %q, want /home", store.got.Dir)
+	}
+	if store.got.Session != "s1" {
+		t.Errorf("Session: got %q, want s1", store.got.Session)
+	}
+	if store.got.CmdSubstr != "ls" {
+		t.Errorf("CmdSubstr: got %q, want ls", store.got.CmdSubstr)
+	}
+
+	// Output must contain all five fields for each row
+	out := buf.String()
+	for _, r := range sampleRows {
+		if !strings.Contains(out, r.Cmd) {
+			t.Errorf("expected cmd %q in full output", r.Cmd)
+		}
+		if !strings.Contains(out, r.Dir) {
+			t.Errorf("expected dir %q in full output", r.Dir)
+		}
+		if !strings.Contains(out, r.Session) {
+			t.Errorf("expected session %q in full output", r.Session)
+		}
+	}
+}
