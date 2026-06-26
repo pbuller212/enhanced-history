@@ -1,6 +1,7 @@
 package query
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -10,6 +11,27 @@ import (
 
 	"enhanced-history/internal/record"
 )
+
+// ErrHelp is returned by Run when --help or -h is passed. The caller should
+// treat this as a clean exit (code 0), not an error.
+var ErrHelp = errors.New("help requested")
+
+// usageText is the full help block printed to out on --help/-h.
+// New flags added to Run must have a corresponding line here.
+const usageText = `Usage: hist [flags]
+
+Query shell history stored by enhanced-history.
+
+Flags:
+  --dir string      prefix match on working directory
+  --full            verbose output: id, cmd, dir, date (UTC), session
+  --me              filter by current session ($EH_SESSION)
+  --search string   substring match on command text
+  --session string  exact match on session ID
+  --since string    show commands on or after this date (YYYY-MM-DD)
+  --version         print version and exit
+
+`
 
 // Filter holds the optional constraints for a history query.
 type Filter struct {
@@ -27,8 +49,17 @@ type Querier interface {
 
 // Run parses args, builds a Filter, queries store, and writes history-style
 // output to out. Errors are returned to the caller; nothing is written to out
-// when an error occurs.
+// when an error occurs. Returns ErrHelp (exit 0) when --help/-h is passed.
 func Run(args []string, store Querier, out io.Writer) error {
+	// Intercept --help/-h before flag parsing so output goes to out, not stderr,
+	// and no DB connection is needed.
+	for _, a := range args {
+		if a == "--help" || a == "-h" {
+			fmt.Fprint(out, usageText)
+			return ErrHelp
+		}
+	}
+
 	fs := flag.NewFlagSet("hist", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 

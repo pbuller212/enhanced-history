@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +17,15 @@ var Version = "dev"
 func main() {
 	if len(os.Args) >= 2 && os.Args[1] == "--version" {
 		fmt.Println(Version)
+		return
+	}
+
+	// Intercept --help/-h before opening the DB (same pattern as --version).
+	if len(os.Args) >= 2 && (os.Args[1] == "--help" || os.Args[1] == "-h") {
+		if err := runQuery(os.Args[1:]); err != nil && !errors.Is(err, query.ErrHelp) {
+			fmt.Fprintf(os.Stderr, "hist: %v\n", err)
+			os.Exit(1)
+		}
 		return
 	}
 
@@ -35,7 +45,7 @@ func main() {
 		// Allow explicit `hist query` as an alias for discoverability.
 		args = os.Args[2:]
 	}
-	if err := runQuery(args); err != nil {
+	if err := runQuery(args); err != nil && !errors.Is(err, query.ErrHelp) {
 		fmt.Fprintf(os.Stderr, "hist: %v\n", err)
 		os.Exit(1)
 	}
