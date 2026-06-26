@@ -292,6 +292,57 @@ func TestRunMeFlagNoEnvVar(t *testing.T) {
 	}
 }
 
+func TestRunHelpFlag(t *testing.T) {
+	store := &stubQuerier{}
+	var buf bytes.Buffer
+
+	err := Run([]string{"--help"}, store, &buf)
+	if err != ErrHelp {
+		t.Fatalf("expected ErrHelp, got %v", err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"Usage:", "hist", "Flags:", "--full", "--since", "--dir", "--session", "--search", "--version"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("help output missing %q:\n%s", want, out)
+		}
+	}
+	// Store must not have been queried
+	if store.got != (Filter{}) {
+		t.Errorf("expected no query on --help, got filter %+v", store.got)
+	}
+}
+
+func TestRunHelpShortFlag(t *testing.T) {
+	store := &stubQuerier{}
+	var buf bytes.Buffer
+
+	err := Run([]string{"-h"}, store, &buf)
+	if err != ErrHelp {
+		t.Fatalf("expected ErrHelp for -h, got %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "Usage:") {
+		t.Errorf("help output missing 'Usage:':\n%s", out)
+	}
+}
+
+func TestRunHelpOutputGoesToOut(t *testing.T) {
+	store := &stubQuerier{}
+	var out bytes.Buffer
+	var discarded bytes.Buffer // simulate stderr being separate
+	_ = discarded
+
+	err := Run([]string{"--help"}, store, &out)
+	if err != ErrHelp {
+		t.Fatalf("expected ErrHelp, got %v", err)
+	}
+	if out.Len() == 0 {
+		t.Error("help output should be written to out, not discarded")
+	}
+}
+
 func TestRunFullFlagComposesWithFilters(t *testing.T) {
 	store := &stubQuerier{rows: sampleRows}
 	var buf bytes.Buffer
