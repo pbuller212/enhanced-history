@@ -46,6 +46,7 @@ This will:
 ## Usage
 
 ```bash
+hist --version                    # print the version and exit
 hist                              # list all history
 hist --since 2026-06-01           # commands on or after this date (YYYY-MM-DD)
 hist --dir ~/projects/foo         # commands run under this directory (prefix match)

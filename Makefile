@@ -1,7 +1,9 @@
 .PHONY: build test vet install clean
 
+VERSION ?= dev
+
 build:
-	CGO_ENABLED=0 go build -o hist ./cmd/hist
+	CGO_ENABLED=0 go build -ldflags="-X main.Version=$(VERSION)" -o hist ./cmd/hist
 
 test:
 	go test ./...
