@@ -10,7 +10,15 @@ import (
 	"enhanced-history/internal/record"
 )
 
+// Version is injected at build time via -ldflags "-X enhanced-history/cmd/hist/main.Version=vX.Y.Z".
+var Version = "dev"
+
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "--version" {
+		fmt.Println(Version)
+		return
+	}
+
 	// With no arguments, or any arguments that don't match a sub-command,
 	// default to the query path.
 	if len(os.Args) >= 2 && os.Args[1] == "record" {

@@ -1,0 +1,138 @@
+name: Release
+
+env:
+  DEFAULT_BRANCH: main
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.bump.outputs.tag }}
+    steps:
+      - uses: https://code.forgejo.org/actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute next patch version and push tag
+        id: bump
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git fetch --tags
+
+          LATEST=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
+          if [ -z "$LATEST" ]; then
+            NEXT="v0.1.0"
+          else
+            MAJOR=$(echo "$LATEST" | cut -d. -f1 | tr -d 'v')
+            MINOR=$(echo "$LATEST" | cut -d. -f2)
+            PATCH=$(echo "$LATEST" | cut -d. -f3)
+            NEXT="v${MAJOR}.${MINOR}.$((PATCH + 1))"
+          fi
+
+          echo "Latest tag: ${LATEST:-none}, next: ${NEXT}"
+          git config user.name "forgejo-actions"
+          git config user.email "forgejo-actions@noreply"
+          git tag "$NEXT"
+          git push origin "$NEXT"
+          echo "tag=$NEXT" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: tag
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+    steps:
+      - uses: https://code.forgejo.org/actions/checkout@v4
+
+      - uses: https://code.forgejo.org/actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+          TAG: ${{ needs.tag.outputs.tag }}
+        run: |
+          go build -ldflags="-s -w -X main.Version=${TAG}" \
+            -o hist-${{ matrix.goos }}-${{ matrix.goarch }} \
+            ./cmd/hist
+
+      - name: Upload artifact
+        uses: https://code.forgejo.org/forgejo/upload-artifact@v4
+        with:
+          name: hist-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: hist-${{ matrix.goos }}-${{ matrix.goarch }}
+
+  release:
+    needs: [tag, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download linux-amd64
+        uses: https://code.forgejo.org/forgejo/download-artifact@v4
+        with:
+          name: hist-linux-amd64
+          path: dist/release
+
+      - name: Download linux-arm64
+        uses: https://code.forgejo.org/forgejo/download-artifact@v4
+        with:
+          name: hist-linux-arm64
+          path: dist/release
+
+      - name: Create release and upload binaries
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.tag.outputs.tag }}
+          SERVER_URL: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          API_BASE="${SERVER_URL}/api/v1"
+
+          RELEASE=$(curl -sf "${API_BASE}/repos/${REPO}/releases/tags/${TAG}" \
+            -H "Authorization: token ${GITHUB_TOKEN}" || true)
+          RELEASE_ID=$(echo "$RELEASE" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2 || true)
+
+          if [ -z "$RELEASE_ID" ]; then
+            HTTP_CODE=$(curl -s -o /tmp/release_response.json -w "%{http_code}" -X POST \
+              "${API_BASE}/repos/${REPO}/releases" \
+              -H "Authorization: token ${GITHUB_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "{\"tag_name\": \"${TAG}\", \"name\": \"${TAG}\"}")
+            [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ] || {
+              echo "ERROR: POST failed (HTTP ${HTTP_CODE}): $(cat /tmp/release_response.json)"
+              exit 1
+            }
+            RELEASE=$(cat /tmp/release_response.json)
+            RELEASE_ID=$(echo "$RELEASE" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
+          fi
+
+          if [ -z "$RELEASE_ID" ]; then
+            echo "ERROR: could not get or create release for tag ${TAG}"
+            exit 1
+          fi
+
+          echo "Release ID: ${RELEASE_ID}"
+
+          for f in dist/release/*; do
+            echo "Uploading $(basename "${f}")..."
+            curl -sfS -X POST \
+              "${API_BASE}/repos/${REPO}/releases/${RELEASE_ID}/assets?name=$(basename "${f}")" \
+              -H "Authorization: token ${GITHUB_TOKEN}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@${f}"
+          done
