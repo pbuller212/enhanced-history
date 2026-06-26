@@ -1,13 +1,16 @@
-.PHONY: build test vet install
+.PHONY: build test vet install clean
 
 build:
-	go build -o hist ./cmd/hist
+	CGO_ENABLED=0 go build -o hist ./cmd/hist
 
 test:
 	go test ./...
 
 vet:
-	go vet ./...
+	go vet ./... && staticcheck ./...
 
-install:
-	go build -o $(HOME)/bin/hist ./cmd/hist
+install: build
+	cp hist $(HOME)/bin/hist
+
+clean:
+	rm -f hist
