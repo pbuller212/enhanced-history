@@ -52,12 +52,14 @@ hist --since 2026-06-01           # commands on or after this date (YYYY-MM-DD)
 hist --dir ~/projects/foo         # commands run under this directory (prefix match)
 hist --session <uuid>             # commands from a specific shell session
 hist --search <keyword>           # substring match on command text
+hist --full                       # verbose output: id, cmd, dir, date (UTC), session
 ```
 
 Flags can be combined:
 
 ```bash
 hist --since 2026-06-01 --dir ~/projects --search git
+hist --full --since 2026-06-01 --search git
 ```
 
 Output format:
@@ -65,6 +67,14 @@ Output format:
 ```
   <id>  <command>
 ```
+
+With `--full`:
+
+```
+  <id>  <command>   <dir>   <YYYY-MM-DD HH:MM>   <session-uuid>
+```
+
+Timestamps in `--full` output are in UTC.
 
 ### `hist record` (internal)
 

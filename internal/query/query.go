@@ -34,6 +34,7 @@ func Run(args []string, store Querier, out io.Writer) error {
 	dir := fs.String("dir", "", "prefix match on working directory")
 	session := fs.String("session", "", "exact match on session ID")
 	search := fs.String("search", "", "substring match on command text")
+	full := fs.Bool("full", false, "verbose output: id, cmd, dir, date (UTC), session")
 
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parse flags: %w", err)
@@ -59,7 +60,12 @@ func Run(args []string, store Querier, out io.Writer) error {
 	}
 
 	for _, r := range rows {
-		fmt.Fprintf(out, "%5d  %s\n", r.ID, r.Cmd)
+		if *full {
+			ts := time.Unix(r.Ts, 0).UTC().Format("2006-01-02 15:04")
+			fmt.Fprintf(out, "%5d  %s   %s   %s   %s\n", r.ID, r.Cmd, r.Dir, ts, r.Session)
+		} else {
+			fmt.Fprintf(out, "%5d  %s\n", r.ID, r.Cmd)
+		}
 	}
 	return nil
 }
