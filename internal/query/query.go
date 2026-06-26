@@ -69,6 +69,5 @@ func Run(args []string, store Querier, out io.Writer) error {
 			fmt.Fprintf(w, "%d\t%s\n", r.ID, r.Cmd)
 		}
 	}
-	w.Flush()
-	return nil
+	return w.Flush()
 }
