@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"text/tabwriter"
 	"time"
 
@@ -34,11 +35,16 @@ func Run(args []string, store Querier, out io.Writer) error {
 	since := fs.String("since", "", "show commands on or after this date (YYYY-MM-DD)")
 	dir := fs.String("dir", "", "prefix match on working directory")
 	session := fs.String("session", "", "exact match on session ID")
+	me := fs.Bool("me", false, "filter by current session ($EH_SESSION)")
 	search := fs.String("search", "", "substring match on command text")
 	full := fs.Bool("full", false, "verbose output: id, cmd, dir, date (UTC), session")
 
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parse flags: %w", err)
+	}
+
+	if *me && *session != "" {
+		return fmt.Errorf("--me and --session are mutually exclusive")
 	}
 
 	var f Filter
@@ -51,8 +57,17 @@ func Run(args []string, store Querier, out io.Writer) error {
 		f.TsFrom = t.UTC().Unix()
 	}
 
+	if *me {
+		ehSession := os.Getenv("EH_SESSION")
+		if ehSession == "" {
+			return fmt.Errorf("$EH_SESSION is not set — is the enhanced-history shell integration loaded?")
+		}
+		f.Session = ehSession
+	} else {
+		f.Session = *session
+	}
+
 	f.Dir = *dir
-	f.Session = *session
 	f.CmdSubstr = *search
 
 	rows, err := store.Query(f)
