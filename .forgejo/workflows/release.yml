@@ -1,12 +1,12 @@
 name: Release
 
-env:
-  DEFAULT_BRANCH: main
-
 on:
   push:
     branches:
-      - main
+      - main  # update here if the default branch changes
+
+permissions:
+  contents: write
 
 jobs:
   tag:
