@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"text/tabwriter"
 	"time"
 
 	"enhanced-history/internal/record"
@@ -59,13 +60,14 @@ func Run(args []string, store Querier, out io.Writer) error {
 		return fmt.Errorf("query history: %w", err)
 	}
 
+	w := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
 	for _, r := range rows {
 		if *full {
 			ts := time.Unix(r.Ts, 0).UTC().Format("2006-01-02 15:04")
-			fmt.Fprintf(out, "%5d  %s   %s   %s   %s\n", r.ID, r.Cmd, r.Dir, ts, r.Session)
+			fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\n", r.ID, r.Cmd, r.Dir, ts, r.Session)
 		} else {
-			fmt.Fprintf(out, "%5d  %s\n", r.ID, r.Cmd)
+			fmt.Fprintf(w, "%d\t%s\n", r.ID, r.Cmd)
 		}
 	}
-	return nil
+	return w.Flush()
 }

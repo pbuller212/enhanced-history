@@ -53,9 +53,18 @@ func TestRunOutputFormat(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	want := "   42  ls -la\n"
-	if got := buf.String(); got != want {
-		t.Errorf("output format: got %q, want %q", got, want)
+	got := buf.String()
+	if !strings.Contains(got, "42") || !strings.Contains(got, "ls -la") {
+		t.Errorf("output format: got %q, want id and cmd present", got)
+	}
+	// tabwriter expands tabs to spaces; verify both fields are present and separated
+	fields := strings.Fields(strings.TrimRight(got, "\n"))
+	// "ls -la" splits into 2 tokens; expect id + 2 cmd tokens = 3
+	if len(fields) < 2 {
+		t.Errorf("output format: expected at least 2 fields, got %d in %q", len(fields), got)
+	}
+	if fields[0] != "42" {
+		t.Errorf("output format: id field got %q, want %q", fields[0], "42")
 	}
 }
 
@@ -179,9 +188,48 @@ func TestRunFullFlag(t *testing.T) {
 	}
 
 	got := buf.String()
-	want := "   42  ls -la   /home/user   1970-01-01 00:00   abc-123\n"
-	if got != want {
-		t.Errorf("full output format:\n got  %q\n want %q", got, want)
+	// tabwriter pads columns; split on runs of whitespace to check fields
+	fields := strings.Fields(strings.TrimRight(got, "\n"))
+	// expected fields: 42, ls, -la, /home/user, 1970-01-01, 00:00, abc-123
+	// "ls -la" becomes two fields after Fields(); check key values
+	if len(fields) < 5 {
+		t.Fatalf("full output: expected at least 5 fields, got %d in %q", len(fields), got)
+	}
+	if fields[0] != "42" {
+		t.Errorf("full output: ID field got %q, want %q", fields[0], "42")
+	}
+	if !strings.Contains(got, "ls -la") {
+		t.Errorf("full output: cmd not found in %q", got)
+	}
+	if !strings.Contains(got, "/home/user") {
+		t.Errorf("full output: dir not found in %q", got)
+	}
+	if !strings.Contains(got, "1970-01-01 00:00") {
+		t.Errorf("full output: timestamp not found in %q", got)
+	}
+	if !strings.Contains(got, "abc-123") {
+		t.Errorf("full output: session not found in %q", got)
+	}
+	// Verify column alignment: use two rows so tabwriter must pad the shorter one.
+	// The padded output must have at least 3 spaces between columns (minwidth=3).
+	store2 := &stubQuerier{rows: []record.Record{
+		{ID: 1, Ts: 0, Dir: "/a", Session: "s1", Cmd: "x"},
+		{ID: 9999, Ts: 0, Dir: "/longer/path", Session: "s2", Cmd: "longer command here"},
+	}}
+	var buf2 bytes.Buffer
+	if err := Run([]string{"--full"}, store2, &buf2); err != nil {
+		t.Fatalf("alignment check: unexpected error: %v", err)
+	}
+	lines := strings.Split(strings.TrimRight(buf2.String(), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("alignment check: expected 2 lines, got %d", len(lines))
+	}
+	// Find position of "x" cmd and "longer command here" cmd columns — they must start at the same offset
+	col0 := strings.Index(lines[0], "x")
+	col1 := strings.Index(lines[1], "longer")
+	if col0 != col1 {
+		t.Errorf("columns not aligned: cmd starts at col %d in line 0 but col %d in line 1\nline0: %q\nline1: %q",
+			col0, col1, lines[0], lines[1])
 	}
 }
 
