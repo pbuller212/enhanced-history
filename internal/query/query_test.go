@@ -233,6 +233,65 @@ func TestRunFullFlag(t *testing.T) {
 	}
 }
 
+func TestRunMeFlag(t *testing.T) {
+	t.Setenv("EH_SESSION", "my-session-id")
+	store := &stubQuerier{rows: sampleRows}
+	var buf bytes.Buffer
+
+	if err := Run([]string{"--me"}, store, &buf); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if store.got.Session != "my-session-id" {
+		t.Errorf("Session: got %q, want %q", store.got.Session, "my-session-id")
+	}
+}
+
+func TestRunMeFlagComposesWithFull(t *testing.T) {
+	t.Setenv("EH_SESSION", "my-session-id")
+	store := &stubQuerier{rows: sampleRows}
+	var buf bytes.Buffer
+
+	if err := Run([]string{"--me", "--full"}, store, &buf); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if store.got.Session != "my-session-id" {
+		t.Errorf("Session: got %q, want %q", store.got.Session, "my-session-id")
+	}
+	if !strings.Contains(buf.String(), "ls -la") {
+		t.Errorf("expected full output to contain command, got: %s", buf.String())
+	}
+}
+
+func TestRunMeFlagWithSessionConflict(t *testing.T) {
+	t.Setenv("EH_SESSION", "my-session-id")
+	store := &stubQuerier{}
+	var buf bytes.Buffer
+
+	err := Run([]string{"--me", "--session", "other-session"}, store, &buf)
+	if err == nil {
+		t.Fatal("expected error when --me and --session are both set, got nil")
+	}
+	if !strings.Contains(err.Error(), "--me") || !strings.Contains(err.Error(), "--session") {
+		t.Errorf("error message should mention both flags, got: %v", err)
+	}
+}
+
+func TestRunMeFlagNoEnvVar(t *testing.T) {
+	t.Setenv("EH_SESSION", "")
+	store := &stubQuerier{}
+	var buf bytes.Buffer
+
+	err := Run([]string{"--me"}, store, &buf)
+	if err == nil {
+		t.Fatal("expected error when EH_SESSION is unset, got nil")
+	}
+	if !strings.Contains(err.Error(), "EH_SESSION") {
+		t.Errorf("error message should mention EH_SESSION, got: %v", err)
+	}
+}
+
 func TestRunFullFlagComposesWithFilters(t *testing.T) {
 	store := &stubQuerier{rows: sampleRows}
 	var buf bytes.Buffer
