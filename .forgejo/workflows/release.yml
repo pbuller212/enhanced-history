@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   tag:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu
     outputs:
       tag: ${{ steps.bump.outputs.tag }}
     steps:
@@ -45,7 +45,7 @@ jobs:
 
   build:
     needs: tag
-    runs-on: ubuntu-latest
+    runs-on: ubuntu
     strategy:
       matrix:
         include:
@@ -79,7 +79,7 @@ jobs:
 
   release:
     needs: [tag, build]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu
     steps:
       - name: Download linux-amd64
         uses: https://code.forgejo.org/forgejo/download-artifact@v4
