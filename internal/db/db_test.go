@@ -112,6 +112,25 @@ func TestFilterDir(t *testing.T) {
 	}
 }
 
+func TestFilterDirExact(t *testing.T) {
+	db := openTemp(t)
+
+	dirs := []string{"/home/user", "/home/user/projects", "/home/userx"}
+	for _, d := range dirs {
+		if err := db.Insert(record.Record{Ts: 1, Dir: d, Session: "s", Cmd: "cmd"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rows, err := db.Query(query.Filter{Dir: "/home/user", DirExact: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Dir != "/home/user" {
+		t.Errorf("expected 1 row matching /home/user exactly, got %+v", rows)
+	}
+}
+
 func TestFilterSession(t *testing.T) {
 	db := openTemp(t)
 
