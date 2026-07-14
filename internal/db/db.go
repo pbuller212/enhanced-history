@@ -89,8 +89,13 @@ func (d *DB) Query(f query.Filter) ([]record.Record, error) {
 		args = append(args, f.TsTo)
 	}
 	if f.Dir != "" {
-		q += ` AND dir LIKE ? || '%' ESCAPE '\'`
-		args = append(args, escapeLike(f.Dir))
+		if f.DirExact {
+			q += ` AND dir = ?`
+			args = append(args, f.Dir)
+		} else {
+			q += ` AND dir LIKE ? || '%' ESCAPE '\'`
+			args = append(args, escapeLike(f.Dir))
+		}
 	}
 	if f.Session != "" {
 		q += ` AND session = ?`

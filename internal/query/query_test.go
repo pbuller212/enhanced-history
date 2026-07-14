@@ -3,6 +3,7 @@ package query
 import (
 	"bytes"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -292,6 +293,63 @@ func TestRunMeFlagNoEnvVar(t *testing.T) {
 	}
 }
 
+func TestRunHereFlag(t *testing.T) {
+	store := &stubQuerier{rows: sampleRows}
+	var buf bytes.Buffer
+
+	if err := Run([]string{"--here"}, store, &buf); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd: %v", err)
+	}
+	if store.got.Dir != wd {
+		t.Errorf("Dir: got %q, want %q", store.got.Dir, wd)
+	}
+	if !store.got.DirExact {
+		t.Error("expected DirExact to be true")
+	}
+}
+
+func TestRunHereFlagWithDirConflict(t *testing.T) {
+	store := &stubQuerier{}
+	var buf bytes.Buffer
+
+	err := Run([]string{"--here", "--dir", "/some/path"}, store, &buf)
+	if err == nil {
+		t.Fatal("expected error when --here and --dir are both set, got nil")
+	}
+	if !strings.Contains(err.Error(), "--here") || !strings.Contains(err.Error(), "--dir") {
+		t.Errorf("error message should mention both flags, got: %v", err)
+	}
+}
+
+func TestRunHereFlagComposesWithMe(t *testing.T) {
+	t.Setenv("EH_SESSION", "my-session-id")
+	store := &stubQuerier{rows: sampleRows}
+	var buf bytes.Buffer
+
+	if err := Run([]string{"--here", "--me"}, store, &buf); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd: %v", err)
+	}
+	if store.got.Dir != wd {
+		t.Errorf("Dir: got %q, want %q", store.got.Dir, wd)
+	}
+	if !store.got.DirExact {
+		t.Error("expected DirExact to be true")
+	}
+	if store.got.Session != "my-session-id" {
+		t.Errorf("Session: got %q, want %q", store.got.Session, "my-session-id")
+	}
+}
+
 func TestRunHelpFlag(t *testing.T) {
 	store := &stubQuerier{}
 	var buf bytes.Buffer
@@ -302,7 +360,7 @@ func TestRunHelpFlag(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{"Usage:", "hist", "Flags:", "--full", "--since", "--dir", "--session", "--search", "--version"} {
+	for _, want := range []string{"Usage:", "hist", "Flags:", "--full", "--here", "--since", "--dir", "--session", "--search", "--version"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("help output missing %q:\n%s", want, out)
 		}

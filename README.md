@@ -53,6 +53,7 @@ hist --since 2026-06-01           # commands on or after this date (YYYY-MM-DD)
 hist --dir ~/projects/foo         # commands run under this directory (prefix match)
 hist --session <uuid>             # commands from a specific shell session
 hist --me                         # commands from the current shell session ($EH_SESSION)
+hist --here                       # commands run in the current directory ($PWD, exact match)
 hist --search <keyword>           # substring match on command text
 hist --full                       # verbose output: id, cmd, dir, date (UTC), session
 ```

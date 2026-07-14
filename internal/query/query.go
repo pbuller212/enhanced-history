@@ -25,6 +25,7 @@ Query shell history stored by enhanced-history.
 Flags:
   --dir string      prefix match on working directory
   --full            verbose output: id, cmd, dir, date (UTC), session
+  --here            filter by current directory ($PWD)
   --me              filter by current session ($EH_SESSION)
   --search string   substring match on command text
   --session string  exact match on session ID
@@ -38,6 +39,7 @@ type Filter struct {
 	TsFrom    int64
 	TsTo      int64
 	Dir       string
+	DirExact  bool
 	Session   string
 	CmdSubstr string
 }
@@ -67,6 +69,7 @@ func Run(args []string, store Querier, out io.Writer) error {
 	dir := fs.String("dir", "", "prefix match on working directory")
 	session := fs.String("session", "", "exact match on session ID")
 	me := fs.Bool("me", false, "filter by current session ($EH_SESSION)")
+	here := fs.Bool("here", false, "filter by current directory ($PWD)")
 	search := fs.String("search", "", "substring match on command text")
 	full := fs.Bool("full", false, "verbose output: id, cmd, dir, date (UTC), session")
 
@@ -76,6 +79,10 @@ func Run(args []string, store Querier, out io.Writer) error {
 
 	if *me && *session != "" {
 		return fmt.Errorf("--me and --session are mutually exclusive")
+	}
+
+	if *here && *dir != "" {
+		return fmt.Errorf("--here and --dir are mutually exclusive")
 	}
 
 	var f Filter
@@ -98,7 +105,16 @@ func Run(args []string, store Querier, out io.Writer) error {
 		f.Session = *session
 	}
 
-	f.Dir = *dir
+	if *here {
+		wd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("resolve current directory: %w", err)
+		}
+		f.Dir = wd
+		f.DirExact = true
+	} else {
+		f.Dir = *dir
+	}
 	f.CmdSubstr = *search
 
 	rows, err := store.Query(f)
