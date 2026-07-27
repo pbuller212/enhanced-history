@@ -87,6 +87,23 @@ The shell integration calls this sub-command automatically — you do not need t
 hist record --cmd "ls -la" --dir /home/user --session <uuid> [--ts <epoch>]
 ```
 
+### `hist backup`
+
+Back up the history database:
+
+```bash
+hist backup                          # write to $HOME/<user>_<host>_<YYYYMMDD>.db
+hist backup /path/to/file.db         # write to an explicit path
+hist backup --format sql             # plain-text SQL dump instead of a binary copy
+hist backup --force /path/to/file.db # overwrite an existing destination
+```
+
+By default `hist backup` refuses to overwrite an existing destination file; pass `--force` to allow it. On success the absolute path of the new file is printed to stdout:
+
+```
+Backup written to /home/user/user_host_20260727.db
+```
+
 ## Database Location
 
 By default the database is stored at:

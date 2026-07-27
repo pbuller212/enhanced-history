@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"io"
 	"strings"
 
 	"enhanced-history/internal/query"
@@ -126,4 +127,70 @@ func (d *DB) Query(f query.Filter) ([]record.Record, error) {
 		return nil, fmt.Errorf("iterate rows: %w", err)
 	}
 	return results, nil
+}
+
+// BackupTo writes an atomic, consistent binary copy of the database to
+// destPath using SQLite's VACUUM INTO. destPath must not already exist;
+// VACUUM INTO refuses to overwrite an existing file.
+func (d *DB) BackupTo(destPath string) error {
+	if _, err := d.sql.Exec(`VACUUM INTO ?`, destPath); err != nil {
+		return fmt.Errorf("vacuum into %q: %w", destPath, err)
+	}
+	return nil
+}
+
+// sqlQuote returns s as a single-quoted SQL string literal with embedded
+// quotes doubled, suitable for embedding in generated SQL text.
+func sqlQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
+
+// Dump writes a plain-text SQL rendering of the database to w: the schema
+// (CREATE TABLE / CREATE INDEX statements from sqlite_master) followed by an
+// INSERT statement per row of the history table. The output can be replayed
+// against sqlite3 (or Open + Exec) to reconstruct the database.
+func (d *DB) Dump(w io.Writer) error {
+	schemaRows, err := d.sql.Query(
+		`SELECT sql FROM sqlite_master WHERE type IN ('table', 'index') AND sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY type DESC, name`,
+	)
+	if err != nil {
+		return fmt.Errorf("query schema: %w", err)
+	}
+	defer schemaRows.Close()
+
+	for schemaRows.Next() {
+		var stmt string
+		if err := schemaRows.Scan(&stmt); err != nil {
+			return fmt.Errorf("scan schema row: %w", err)
+		}
+		if _, err := fmt.Fprintf(w, "%s;\n", stmt); err != nil {
+			return fmt.Errorf("write schema statement: %w", err)
+		}
+	}
+	if err := schemaRows.Err(); err != nil {
+		return fmt.Errorf("iterate schema rows: %w", err)
+	}
+
+	dataRows, err := d.sql.Query(`SELECT id, ts, dir, session, cmd FROM history ORDER BY id ASC`)
+	if err != nil {
+		return fmt.Errorf("query history: %w", err)
+	}
+	defer dataRows.Close()
+
+	for dataRows.Next() {
+		var r record.Record
+		if err := dataRows.Scan(&r.ID, &r.Ts, &r.Dir, &r.Session, &r.Cmd); err != nil {
+			return fmt.Errorf("scan history row: %w", err)
+		}
+		_, err := fmt.Fprintf(w, "INSERT INTO history (id, ts, dir, session, cmd) VALUES (%d, %d, %s, %s, %s);\n",
+			r.ID, r.Ts, sqlQuote(r.Dir), sqlQuote(r.Session), sqlQuote(r.Cmd))
+		if err != nil {
+			return fmt.Errorf("write insert statement: %w", err)
+		}
+	}
+	if err := dataRows.Err(); err != nil {
+		return fmt.Errorf("iterate history rows: %w", err)
+	}
+
+	return nil
 }
