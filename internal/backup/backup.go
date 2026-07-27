@@ -84,17 +84,12 @@ func Run(args []string, store Backupper, out io.Writer) error {
 
 	switch *format {
 	case "sql":
-		if err := writeDump(store, dest, *force); err != nil {
+		if err := writeDumpAtomic(store, dest); err != nil {
 			return err
 		}
 	default:
-		if *force {
-			if err := os.Remove(dest); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("remove existing destination %q: %w", dest, err)
-			}
-		}
-		if err := store.BackupTo(dest); err != nil {
-			return fmt.Errorf("backup to %q: %w", dest, err)
+		if err := backupToAtomic(store, dest); err != nil {
+			return err
 		}
 	}
 
@@ -138,22 +133,70 @@ func resolveDestination(dest, format string) (string, error) {
 	return filepath.Join(home, filename), nil
 }
 
-// writeDump writes a SQL dump to dest, truncating any existing file only
-// when force is set (Run has already verified the collision rule).
-func writeDump(store Backupper, dest string, force bool) error {
-	flags := os.O_WRONLY | os.O_CREATE | os.O_EXCL
-	if force {
-		flags = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
-	}
-
-	f, err := os.OpenFile(dest, flags, 0o600)
+// writeDumpAtomic writes a SQL dump to a temp file next to dest and renames
+// it into place only once the dump has been written and closed successfully,
+// so a failed or partial dump never touches (or destroys) an existing dest.
+func writeDumpAtomic(store Backupper, dest string) error {
+	tmp, err := tempPathFor(dest)
 	if err != nil {
-		return fmt.Errorf("create %q: %w", dest, err)
+		return err
 	}
-	defer f.Close()
+	defer os.Remove(tmp) // no-op once the rename below has succeeded
 
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("open temp file %q: %w", tmp, err)
+	}
 	if err := store.Dump(f); err != nil {
+		f.Close()
 		return fmt.Errorf("dump to %q: %w", dest, err)
 	}
-	return f.Close()
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close temp file %q: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, dest); err != nil {
+		return fmt.Errorf("rename %q to %q: %w", tmp, dest, err)
+	}
+	return nil
+}
+
+// backupToAtomic runs store.BackupTo against a temp path next to dest and
+// renames the result into place only on success, so a failed backup never
+// removes or truncates an existing dest. store.BackupTo (SQLite VACUUM INTO)
+// refuses to write to a path that already exists, so tempPathFor's freshly
+// created (and empty) temp file is removed first to make way for it.
+func backupToAtomic(store Backupper, dest string) error {
+	tmp, err := tempPathFor(dest)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp) // no-op once the rename below has succeeded
+
+	if err := os.Remove(tmp); err != nil {
+		return fmt.Errorf("remove placeholder temp file %q: %w", tmp, err)
+	}
+	if err := store.BackupTo(tmp); err != nil {
+		return fmt.Errorf("backup to %q: %w", dest, err)
+	}
+	if err := os.Rename(tmp, dest); err != nil {
+		return fmt.Errorf("rename %q to %q: %w", tmp, dest, err)
+	}
+	return nil
+}
+
+// tempPathFor creates and returns an empty temp file in the same directory
+// as dest, so a later rename onto dest is same-filesystem (and therefore
+// atomic). The caller is responsible for removing it (directly, or via a
+// successful rename).
+func tempPathFor(dest string) (string, error) {
+	f, err := os.CreateTemp(filepath.Dir(dest), filepath.Base(dest)+".tmp-*")
+	if err != nil {
+		return "", fmt.Errorf("create temp file for %q: %w", dest, err)
+	}
+	tmp := f.Name()
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return "", fmt.Errorf("close temp file %q: %w", tmp, err)
+	}
+	return tmp, nil
 }

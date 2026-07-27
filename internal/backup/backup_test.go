@@ -56,11 +56,20 @@ func TestRunDefaultFilename(t *testing.T) {
 	if len(store.backupToCalls) != 1 {
 		t.Fatalf("expected 1 BackupTo call, got %d", len(store.backupToCalls))
 	}
-	dest := store.backupToCalls[0]
-
-	if !strings.HasPrefix(dest, home) {
-		t.Errorf("destination %q not under home %q", dest, home)
+	tmpDest := store.backupToCalls[0]
+	if !strings.HasPrefix(tmpDest, home) {
+		t.Errorf("BackupTo destination %q not under home %q", tmpDest, home)
 	}
+
+	entries, err := os.ReadDir(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected exactly one file left in home, got %+v", entries)
+	}
+	dest := filepath.Join(home, entries[0].Name())
+
 	base := filepath.Base(dest)
 	if !strings.HasPrefix(base, "alice_") || !strings.HasSuffix(base, ".db") {
 		t.Errorf("unexpected default filename %q", base)
@@ -81,8 +90,11 @@ func TestRunExplicitDestination(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 
-	if len(store.backupToCalls) != 1 || store.backupToCalls[0] != dest {
-		t.Fatalf("expected BackupTo(%q), got %+v", dest, store.backupToCalls)
+	if len(store.backupToCalls) != 1 || filepath.Dir(store.backupToCalls[0]) != dir {
+		t.Fatalf("expected BackupTo called with a temp path in %q, got %+v", dir, store.backupToCalls)
+	}
+	if _, err := os.Stat(dest); err != nil {
+		t.Errorf("expected final backup file at %q: %v", dest, err)
 	}
 	if !strings.Contains(out.String(), "Backup written to "+dest) {
 		t.Errorf("unexpected stdout: %q", out.String())
@@ -198,8 +210,8 @@ func TestRunCollisionWithForceOverwrites(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 
-	if len(store.backupToCalls) != 1 || store.backupToCalls[0] != dest {
-		t.Fatalf("expected BackupTo(%q), got %+v", dest, store.backupToCalls)
+	if len(store.backupToCalls) != 1 || filepath.Dir(store.backupToCalls[0]) != dir {
+		t.Fatalf("expected BackupTo called with a temp path in %q, got %+v", dir, store.backupToCalls)
 	}
 	content, err := os.ReadFile(dest)
 	if err != nil {
@@ -277,5 +289,67 @@ func TestRunBackupToErrorPropagates(t *testing.T) {
 	}
 	if out.Len() != 0 {
 		t.Errorf("expected no stdout output on error, got %q", out.String())
+	}
+}
+
+func TestRunForceBackupToErrorLeavesExistingDestUntouched(t *testing.T) {
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "backup.db")
+	if err := os.WriteFile(dest, []byte("existing"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	store := &fakeStore{backupToErr: errors.New("disk full")}
+	var out bytes.Buffer
+	err := Run([]string{"--force", dest}, store, &out)
+	if err == nil {
+		t.Fatal("expected error to propagate from BackupTo, got nil")
+	}
+
+	content, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("existing destination was removed: %v", err)
+	}
+	if string(content) != "existing" {
+		t.Errorf("existing file was modified: %q", content)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("expected no leftover temp files, got %+v", entries)
+	}
+}
+
+func TestRunForceDumpErrorLeavesExistingDestUntouched(t *testing.T) {
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "backup.sql")
+	if err := os.WriteFile(dest, []byte("existing"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	store := &fakeStore{dumpErr: errors.New("query failed")}
+	var out bytes.Buffer
+	err := Run([]string{"--force", "--format", "sql", dest}, store, &out)
+	if err == nil {
+		t.Fatal("expected error to propagate from Dump, got nil")
+	}
+
+	content, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("existing destination was removed: %v", err)
+	}
+	if string(content) != "existing" {
+		t.Errorf("existing file was modified: %q", content)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("expected no leftover temp files, got %+v", entries)
 	}
 }
