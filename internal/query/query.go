@@ -32,6 +32,9 @@ Flags:
   --since string    show commands on or after this date (YYYY-MM-DD)
   --version         print version and exit
 
+Subcommands:
+  hist backup [destination]   back up the history database (see hist backup --help)
+
 `
 
 // Filter holds the optional constraints for a history query.

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"enhanced-history/internal/backup"
 	"enhanced-history/internal/db"
 	"enhanced-history/internal/query"
 	"enhanced-history/internal/record"
@@ -34,6 +35,14 @@ func main() {
 	if len(os.Args) >= 2 && os.Args[1] == "record" {
 		if err := runRecord(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "hist record: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if len(os.Args) >= 2 && os.Args[1] == "backup" {
+		if err := runBackup(os.Args[2:]); err != nil && !errors.Is(err, backup.ErrHelp) {
+			fmt.Fprintf(os.Stderr, "hist backup: %v\n", err)
 			os.Exit(1)
 		}
 		return
@@ -78,6 +87,16 @@ func runRecord(args []string) error {
 	defer store.Close()
 
 	return record.Run(args, store)
+}
+
+func runBackup(args []string) error {
+	store, err := openDB()
+	if err != nil {
+		return fmt.Errorf("open db: %w", err)
+	}
+	defer store.Close()
+
+	return backup.Run(args, store, os.Stdout)
 }
 
 func runQuery(args []string) error {
