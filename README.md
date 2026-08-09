@@ -43,6 +43,18 @@ This will:
 - Define a `preexec` hook that records every command with its working directory and session ID
 - Do nothing silently if the `hist` binary is not on `PATH` — the shell is never broken by a missing binary
 
+### Verifying setup
+
+After installation, run the setup-verification script to check that everything above was actually completed:
+
+```bash
+make check-setup
+# or directly:
+shell/check-setup.sh
+```
+
+It checks that `hist` and `uuidgen` are on `PATH`, that the integration files exist and are sourced from `~/.bashrc`, that the `preexec` hook and `$EH_SESSION` are live in an interactive shell, and that the database directory is writable. Where a fix is safe (copying the integration file into place, appending the missing `source` lines, installing `uuid-runtime`/`util-linux`), it asks for confirmation before making any change. It exits non-zero if a problem is found and not fixed.
+
 ## Usage
 
 ```bash
