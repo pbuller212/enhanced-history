@@ -10,6 +10,7 @@ import (
 	"enhanced-history/internal/db"
 	"enhanced-history/internal/query"
 	"enhanced-history/internal/record"
+	"enhanced-history/internal/tui"
 )
 
 // Version is injected at build time via -ldflags "-X enhanced-history/cmd/hist/main.Version=vX.Y.Z".
@@ -43,6 +44,14 @@ func main() {
 	if len(os.Args) >= 2 && os.Args[1] == "backup" {
 		if err := runBackup(os.Args[2:]); err != nil && !errors.Is(err, backup.ErrHelp) {
 			fmt.Fprintf(os.Stderr, "hist backup: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if len(os.Args) >= 2 && os.Args[1] == "tui" {
+		if err := runTUI(); err != nil {
+			fmt.Fprintf(os.Stderr, "hist tui: %v\n", err)
 			os.Exit(1)
 		}
 		return
@@ -97,6 +106,16 @@ func runBackup(args []string) error {
 	defer store.Close()
 
 	return backup.Run(args, store, os.Stdout)
+}
+
+func runTUI() error {
+	store, err := openDB()
+	if err != nil {
+		return fmt.Errorf("open db: %w", err)
+	}
+	defer store.Close()
+
+	return tui.Run(store)
 }
 
 func runQuery(args []string) error {

@@ -116,6 +116,20 @@ By default `hist backup` refuses to overwrite an existing destination file; pass
 Backup written to /home/user/user_host_20260727.db
 ```
 
+### `hist tui`
+
+Launch an interactive, read-only terminal UI for browsing history:
+
+```bash
+hist tui
+```
+
+- **Live filtering** — type into the Search / Dir / Session / Since fields and the command list updates as you type, no submit step needed.
+- **Panel layout** — the main command list sits alongside a summary panel showing counts and top directories for the currently visible rows.
+- **Copy to clipboard** — select a row and press `enter` or `y` to copy its command text to the system clipboard. This is the only supported action; the TUI never deletes, edits, or re-runs a command.
+
+Keys: `tab` / `shift+tab` cycle focus between the filter fields and the table; `esc` or `ctrl+c` quits (`q` quits only while the table is focused, so it can still be typed into a filter field). `hist tui` requires a real interactive terminal.
+
 ## Database Location
 
 By default the database is stored at:

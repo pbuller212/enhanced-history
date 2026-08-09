@@ -34,6 +34,7 @@ Flags:
 
 Subcommands:
   hist backup [destination]   back up the history database (see hist backup --help)
+  hist tui                    interactive terminal UI for browsing history
 
 `
 
