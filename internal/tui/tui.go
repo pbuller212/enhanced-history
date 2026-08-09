@@ -8,6 +8,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/table"
@@ -18,6 +19,10 @@ import (
 	"enhanced-history/internal/query"
 	"enhanced-history/internal/record"
 )
+
+// searchDebounce is how long the filter fields wait after the last keystroke
+// before re-querying, so a fast typist doesn't fire one query per character.
+const searchDebounce = 300 * time.Millisecond
 
 // Querier is satisfied by db.DB; defined here to avoid an import cycle.
 type Querier interface {
@@ -64,6 +69,12 @@ type Model struct {
 	rows   []record.Record
 	status string
 	errMsg string
+
+	// filterGen counts filter-field edits. A debounce tick or query result
+	// only takes effect if it was issued for the current generation, so a
+	// stale (superseded) tick or slow/out-of-order query response never
+	// overwrites what's currently on screen.
+	filterGen int
 
 	width  int
 	height int
@@ -124,20 +135,40 @@ func (m Model) Init() tea.Cmd {
 }
 
 // filterMsg carries the result of a (re-)query triggered by a filter change.
+// gen identifies which filterGen the query was issued for, so a response
+// that arrives after a newer edit can be recognized as stale and discarded.
 type filterMsg struct {
+	gen  int
 	rows []record.Record
 	err  error
+}
+
+// debounceMsg fires searchDebounce after a filter-field edit. gen is the
+// filterGen at the time the edit was made.
+type debounceMsg struct {
+	gen int
 }
 
 // reload runs the current filter against the store. It is synchronous but
 // wrapped in a tea.Cmd per the Elm architecture so Update stays pure.
 func (m Model) reload() tea.Cmd {
 	f := m.buildFilter()
+	gen := m.filterGen
 	store := m.store
 	return func() tea.Msg {
 		rows, err := store.Query(f)
-		return filterMsg{rows: rows, err: err}
+		return filterMsg{gen: gen, rows: rows, err: err}
 	}
+}
+
+// debounceReload schedules a reload after searchDebounce, tagged with the
+// current filterGen. Update only acts on it if no newer edit has happened
+// in the meantime.
+func (m Model) debounceReload() tea.Cmd {
+	gen := m.filterGen
+	return tea.Tick(searchDebounce, func(time.Time) tea.Msg {
+		return debounceMsg{gen: gen}
+	})
 }
 
 // buildFilter translates the current input values into a query.Filter.
@@ -164,6 +195,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case filterMsg:
+		if msg.gen != m.filterGen {
+			// Superseded by a later edit; discard.
+			return m, nil
+		}
 		m.errMsg = ""
 		if msg.err != nil {
 			m.errMsg = msg.err.Error()
@@ -172,6 +207,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rows = msg.rows
 		m.table.SetRows(rowsToTable(msg.rows))
 		return m, nil
+
+	case debounceMsg:
+		if msg.gen != m.filterGen {
+			// A newer edit already scheduled its own debounce; discard.
+			return m, nil
+		}
+		return m, m.reload()
 
 	case statusMsg:
 		m.status = string(msg)
@@ -222,8 +264,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	// Any edit to a filter field triggers a live re-query.
-	return m, tea.Batch(cmd, m.reload())
+	// Any edit to a filter field schedules a debounced re-query rather than
+	// firing one immediately, so a burst of keystrokes collapses into a
+	// single query after the user pauses.
+	m.filterGen++
+	return m, tea.Batch(cmd, m.debounceReload())
 }
 
 // advanceFocus moves focus by delta positions through focusOrder, wrapping

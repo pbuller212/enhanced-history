@@ -124,7 +124,7 @@ Launch an interactive, read-only terminal UI for browsing history:
 hist tui
 ```
 
-- **Live filtering** — type into the Search / Dir / Session / Since fields and the command list updates as you type, no submit step needed.
+- **Live filtering** — type into the Search / Dir / Session / Since fields and the command list updates as you type (debounced by 300ms after the last keystroke), no submit step needed.
 - **Panel layout** — the main command list sits alongside a summary panel showing counts and top directories for the currently visible rows.
 - **Copy to clipboard** — select a row and press `enter` or `y` to copy its command text to the system clipboard. This is the only supported action; the TUI never deletes, edits, or re-runs a command.
 

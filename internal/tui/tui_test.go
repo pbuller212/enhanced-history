@@ -3,6 +3,7 @@ package tui
 import (
 	"errors"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -99,7 +100,29 @@ func TestUpdateFilterMsgSurfacesError(t *testing.T) {
 	}
 }
 
-func TestTypingInSearchTriggersLiveReload(t *testing.T) {
+// findDebounceMsg unwraps a (possibly tea.Batch-wrapped) command looking for
+// a debounceMsg, running any nested commands to get there.
+func findDebounceMsg(t *testing.T, cmd tea.Cmd) debounceMsg {
+	t.Helper()
+	if cmd == nil {
+		t.Fatal("expected a non-nil command")
+	}
+	msg := cmd()
+	switch v := msg.(type) {
+	case debounceMsg:
+		return v
+	case tea.BatchMsg:
+		for _, c := range v {
+			if dm, ok := c().(debounceMsg); ok {
+				return dm
+			}
+		}
+	}
+	t.Fatalf("expected debounceMsg, got %T", msg)
+	return debounceMsg{}
+}
+
+func TestTypingInSearchSchedulesDebounceNotImmediateReload(t *testing.T) {
 	store := &fakeStore{rows: sampleRows()}
 	m := New(store)
 
@@ -109,29 +132,81 @@ func TestTypingInSearchTriggersLiveReload(t *testing.T) {
 	if mm.search.Value() != "git" {
 		t.Fatalf("expected search value %q, got %q", "git", mm.search.Value())
 	}
-	if cmd == nil {
-		t.Fatal("expected a reload command after typing")
+	// The keystroke itself must not have queried the store yet — only the
+	// debounce timer fires the query, after searchDebounce elapses.
+	if store.calls != 0 {
+		t.Fatalf("expected no query on keystroke, got %d calls", store.calls)
 	}
 
-	msg := cmd()
-	// tea.Batch wraps multiple commands into a BatchMsg; unwrap to find filterMsg.
-	found := false
-	switch v := msg.(type) {
-	case filterMsg:
-		found = true
-		if store.lastFilter.CmdSubstr != "git" {
-			t.Fatalf("expected CmdSubstr %q, got %q", "git", store.lastFilter.CmdSubstr)
-		}
-	case tea.BatchMsg:
-		for _, c := range v {
-			if fm, ok := c().(filterMsg); ok {
-				found = true
-				_ = fm
-			}
-		}
+	dm := findDebounceMsg(t, cmd)
+	if dm.gen != mm.filterGen {
+		t.Fatalf("expected debounceMsg.gen %d, got %d", mm.filterGen, dm.gen)
 	}
-	if !found {
-		t.Fatalf("expected reload command to eventually produce filterMsg, got %T", msg)
+}
+
+func TestDebounceFiresReloadWhenGenerationStillCurrent(t *testing.T) {
+	store := &fakeStore{rows: sampleRows()}
+	m := New(store)
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("git")})
+	mm := updated.(Model)
+
+	updated2, cmd := mm.Update(debounceMsg{gen: mm.filterGen})
+	mm2 := updated2.(Model)
+	if cmd == nil {
+		t.Fatal("expected debounceMsg to trigger a reload command")
+	}
+	msg := cmd()
+	fm, ok := msg.(filterMsg)
+	if !ok {
+		t.Fatalf("expected filterMsg, got %T", msg)
+	}
+	if store.lastFilter.CmdSubstr != "git" {
+		t.Fatalf("expected CmdSubstr %q, got %q", "git", store.lastFilter.CmdSubstr)
+	}
+	_ = mm2
+	_ = fm
+}
+
+func TestStaleDebounceIsDiscarded(t *testing.T) {
+	store := &fakeStore{rows: sampleRows()}
+	m := New(store)
+
+	// Simulate an edit from an earlier generation arriving after a newer
+	// edit already bumped filterGen (e.g. the user kept typing).
+	m.filterGen = 5
+	updated, cmd := m.Update(debounceMsg{gen: 4})
+	mm := updated.(Model)
+	if cmd != nil {
+		t.Fatalf("expected stale debounceMsg to be discarded, got a command")
+	}
+	if store.calls != 0 {
+		t.Fatalf("expected no query from stale debounceMsg, got %d calls", store.calls)
+	}
+	_ = mm
+}
+
+func TestStaleFilterMsgIsDiscarded(t *testing.T) {
+	store := &fakeStore{}
+	m := New(store)
+	m.filterGen = 2
+	m.rows = sampleRows()
+	m.table.SetRows(rowsToTable(m.rows))
+
+	// A filterMsg tagged with an older generation must not overwrite the
+	// current (newer) rows, since it was superseded before it arrived.
+	staleRows := []record.Record{{ID: 99, Ts: 1, Dir: "/stale", Session: "x", Cmd: "stale"}}
+	updated, _ := m.Update(filterMsg{gen: 1, rows: staleRows})
+	mm := updated.(Model)
+
+	if len(mm.rows) != 3 {
+		t.Fatalf("expected stale filterMsg to be ignored, rows changed to len %d", len(mm.rows))
+	}
+}
+
+func TestDebounceUsesConfiguredDelay(t *testing.T) {
+	if searchDebounce != 300*time.Millisecond {
+		t.Fatalf("expected 300ms debounce, got %v", searchDebounce)
 	}
 }
 
