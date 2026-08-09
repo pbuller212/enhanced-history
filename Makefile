@@ -1,4 +1,4 @@
-.PHONY: build test vet install clean
+.PHONY: build test vet install check-setup clean
 
 VERSION ?= dev
 
@@ -13,6 +13,9 @@ vet:
 
 install: build
 	cp hist $(HOME)/bin/hist
+
+check-setup:
+	./shell/check-setup.sh
 
 clean:
 	rm -f hist
