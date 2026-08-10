@@ -311,18 +311,28 @@ func TestCopySelectedSurfacesClipboardError(t *testing.T) {
 	m.rows = sampleRows()
 	m.table.SetRows(rowsToTable(m.rows))
 	m.focus = focusTable
+	// Bump filterGen past its zero value, as a prior filter-field edit would.
+	// A clipboard error must surface regardless of filterGen, since it is no
+	// longer carried by filterMsg (which the gen check can discard as stale).
+	m.filterGen = 1
 	m.clipboardWrite = func(s string) error {
 		return errors.New("no clipboard available")
 	}
 
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	msg := cmd()
-	fm, ok := msg.(filterMsg)
+	em, ok := msg.(clipboardErrMsg)
 	if !ok {
-		t.Fatalf("expected filterMsg carrying error, got %T", msg)
+		t.Fatalf("expected clipboardErrMsg carrying error, got %T", msg)
 	}
-	if fm.err == nil {
+	if em.err == nil {
 		t.Fatal("expected non-nil error from failed clipboard write")
+	}
+
+	updated, _ := m.Update(em)
+	mm := updated.(Model)
+	if mm.errMsg == "" {
+		t.Fatal("expected Update to surface the clipboard error in errMsg")
 	}
 }
 

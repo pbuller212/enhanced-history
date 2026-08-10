@@ -220,6 +220,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.errMsg = ""
 		return m, nil
 
+	case clipboardErrMsg:
+		m.errMsg = msg.err.Error()
+		return m, nil
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -314,7 +318,7 @@ func (m *Model) copySelected() tea.Cmd {
 	write := m.clipboardWrite
 	return func() tea.Msg {
 		if err := write(cmdText); err != nil {
-			return filterMsg{rows: m.rows, err: fmt.Errorf("copy to clipboard: %w", err)}
+			return clipboardErrMsg{err: fmt.Errorf("copy to clipboard: %w", err)}
 		}
 		return statusMsg("copied to clipboard")
 	}
@@ -322,6 +326,12 @@ func (m *Model) copySelected() tea.Cmd {
 
 // statusMsg briefly reports a successful action (e.g. a clipboard copy).
 type statusMsg string
+
+// clipboardErrMsg reports a clipboard write failure. It is a distinct type
+// from filterMsg so it is never subject to the filterGen staleness check —
+// a copy failure must always be surfaced, regardless of filter edits that
+// happened in the meantime.
+type clipboardErrMsg struct{ err error }
 
 // layout recomputes component widths/heights from the current terminal size.
 func (m *Model) layout() {
