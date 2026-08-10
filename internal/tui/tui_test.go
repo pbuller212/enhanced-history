@@ -440,6 +440,27 @@ func TestTruncate(t *testing.T) {
 	}
 }
 
+func TestTruncateMultiByteRunes(t *testing.T) {
+	// Directory names can contain multi-byte UTF-8 (e.g. "/home/café", CJK,
+	// emoji); truncation must slice by rune, not by byte, or it can split a
+	// multi-byte sequence and corrupt the output or panic.
+	s := "/home/日本語/café/📁project"
+	got := truncate(s, 10)
+	if n := len([]rune(got)); n != 10 {
+		t.Fatalf("truncate rune length = %d, want 10: %q", n, got)
+	}
+	if want := "/home/日本語" + "…"; got != want {
+		t.Errorf("truncate(%q, 10) = %q, want %q", s, got, want)
+	}
+
+	// A string shorter than n in runes but longer in bytes must be returned
+	// unchanged.
+	short := "日本語"
+	if got := truncate(short, 20); got != short {
+		t.Errorf("truncate short multi-byte string changed it: %q", got)
+	}
+}
+
 func TestRowsToTable(t *testing.T) {
 	rows := sampleRows()
 	tr := rowsToTable(rows)
