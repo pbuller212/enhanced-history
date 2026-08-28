@@ -67,8 +67,11 @@ hist --session <uuid>             # commands from a specific shell session
 hist --me                         # commands from the current shell session ($EH_SESSION)
 hist --here                       # commands run in the current directory ($PWD, exact match)
 hist --search <keyword>           # substring match on command text
-hist --full                       # verbose output: id, cmd, dir, date (UTC), session
+hist --full                       # verbose output: cmd, dir, date (UTC), session
+hist --ids                        # prepend the database record id to each row
 ```
+
+The database record `id` is a SQLite-internal detail and is hidden by default. Pass `--ids` to show it (it composes with `--full`, e.g. `hist --full --ids`).
 
 Flags can be combined:
 
@@ -80,10 +83,16 @@ hist --full --since 2026-06-01 --search git
 Output format:
 
 ```
-  <id>  <command>
+  <command>
 ```
 
 With `--full`:
+
+```
+  <command>   <dir>   <YYYY-MM-DD HH:MM>   <session-uuid>
+```
+
+With `--ids` (shown here combined with `--full`):
 
 ```
   <id>  <command>   <dir>   <YYYY-MM-DD HH:MM>   <session-uuid>
@@ -122,7 +131,10 @@ Launch an interactive, read-only terminal UI for browsing history:
 
 ```bash
 hist tui
+hist tui --ids   # add the database record id as the first table column
 ```
+
+The `ID` column is hidden by default (it is a SQLite-internal detail); pass `--ids` to show it.
 
 - **Live filtering** — type into the Search / Dir / Session / Since fields and the command list updates as you type (debounced by 300ms after the last keystroke), no submit step needed.
 - **Panel layout** — the main command list sits alongside a summary panel showing counts and top directories for the currently visible rows.

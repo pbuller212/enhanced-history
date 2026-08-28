@@ -55,17 +55,55 @@ func TestRunOutputFormat(t *testing.T) {
 	}
 
 	got := buf.String()
-	if !strings.Contains(got, "42") || !strings.Contains(got, "ls -la") {
-		t.Errorf("output format: got %q, want id and cmd present", got)
+	// Default (terse) output is just the command — no record id.
+	if got != "ls -la\n" {
+		t.Errorf("output format: got %q, want %q", got, "ls -la\n")
 	}
-	// tabwriter expands tabs to spaces; verify both fields are present and separated
+}
+
+func TestRunIdsFlag(t *testing.T) {
+	store := &stubQuerier{rows: []record.Record{{ID: 42, Ts: 1000, Dir: "/", Session: "s", Cmd: "ls -la"}}}
+	var buf bytes.Buffer
+
+	if err := Run([]string{"--ids"}, store, &buf); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got := buf.String()
 	fields := strings.Fields(strings.TrimRight(got, "\n"))
-	// "ls -la" splits into 2 tokens; expect id + 2 cmd tokens = 3
 	if len(fields) < 2 {
-		t.Errorf("output format: expected at least 2 fields, got %d in %q", len(fields), got)
+		t.Fatalf("--ids output: expected at least 2 fields, got %d in %q", len(fields), got)
 	}
 	if fields[0] != "42" {
-		t.Errorf("output format: id field got %q, want %q", fields[0], "42")
+		t.Errorf("--ids output: id field got %q, want %q", fields[0], "42")
+	}
+	if !strings.Contains(got, "ls -la") {
+		t.Errorf("--ids output: cmd not found in %q", got)
+	}
+}
+
+func TestRunFullWithIdsFlag(t *testing.T) {
+	store := &stubQuerier{rows: []record.Record{
+		{ID: 42, Ts: 0, Dir: "/home/user", Session: "abc-123", Cmd: "ls -la"},
+	}}
+	var buf bytes.Buffer
+
+	if err := Run([]string{"--full", "--ids"}, store, &buf); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got := buf.String()
+	fields := strings.Fields(strings.TrimRight(got, "\n"))
+	if len(fields) < 5 {
+		t.Fatalf("--full --ids output: expected at least 5 fields, got %d in %q", len(fields), got)
+	}
+	if fields[0] != "42" {
+		t.Errorf("--full --ids output: id field got %q, want %q", fields[0], "42")
+	}
+	for _, want := range []string{"ls -la", "/home/user", "1970-01-01 00:00", "abc-123"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("--full --ids output: %q not found in %q", want, got)
+		}
 	}
 }
 
@@ -191,13 +229,14 @@ func TestRunFullFlag(t *testing.T) {
 	got := buf.String()
 	// tabwriter pads columns; split on runs of whitespace to check fields
 	fields := strings.Fields(strings.TrimRight(got, "\n"))
-	// expected fields: 42, ls, -la, /home/user, 1970-01-01, 00:00, abc-123
+	// expected fields: ls, -la, /home/user, 1970-01-01, 00:00, abc-123
 	// "ls -la" becomes two fields after Fields(); check key values
-	if len(fields) < 5 {
-		t.Fatalf("full output: expected at least 5 fields, got %d in %q", len(fields), got)
+	if len(fields) < 4 {
+		t.Fatalf("full output: expected at least 4 fields, got %d in %q", len(fields), got)
 	}
-	if fields[0] != "42" {
-		t.Errorf("full output: ID field got %q, want %q", fields[0], "42")
+	// No record id by default, even with --full.
+	if strings.HasPrefix(strings.TrimSpace(got), "42") {
+		t.Errorf("full output: unexpected leading id in %q", got)
 	}
 	if !strings.Contains(got, "ls -la") {
 		t.Errorf("full output: cmd not found in %q", got)
@@ -218,7 +257,7 @@ func TestRunFullFlag(t *testing.T) {
 		{ID: 9999, Ts: 0, Dir: "/longer/path", Session: "s2", Cmd: "longer command here"},
 	}}
 	var buf2 bytes.Buffer
-	if err := Run([]string{"--full"}, store2, &buf2); err != nil {
+	if err := Run([]string{"--full", "--ids"}, store2, &buf2); err != nil {
 		t.Fatalf("alignment check: unexpected error: %v", err)
 	}
 	lines := strings.Split(strings.TrimRight(buf2.String(), "\n"), "\n")
@@ -360,7 +399,7 @@ func TestRunHelpFlag(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{"Usage:", "hist", "Flags:", "--full", "--here", "--since", "--dir", "--session", "--search", "--version"} {
+	for _, want := range []string{"Usage:", "hist", "Flags:", "--full", "--here", "--ids", "--since", "--dir", "--session", "--search", "--version"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("help output missing %q:\n%s", want, out)
 		}
