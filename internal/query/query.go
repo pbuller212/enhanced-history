@@ -24,8 +24,9 @@ Query shell history stored by enhanced-history.
 
 Flags:
   --dir string      prefix match on working directory
-  --full            verbose output: id, cmd, dir, date (UTC), session
+  --full            verbose output: cmd, dir, date (UTC), session
   --here            filter by current directory ($PWD)
+  --ids             include the database record id as the first column
   --me              filter by current session ($EH_SESSION)
   --search string   substring match on command text
   --session string  exact match on session ID
@@ -34,7 +35,7 @@ Flags:
 
 Subcommands:
   hist backup [destination]   back up the history database (see hist backup --help)
-  hist tui                    interactive terminal UI for browsing history
+  hist tui                    interactive terminal UI for browsing history (see hist tui --help)
 
 `
 
@@ -75,7 +76,8 @@ func Run(args []string, store Querier, out io.Writer) error {
 	me := fs.Bool("me", false, "filter by current session ($EH_SESSION)")
 	here := fs.Bool("here", false, "filter by current directory ($PWD)")
 	search := fs.String("search", "", "substring match on command text")
-	full := fs.Bool("full", false, "verbose output: id, cmd, dir, date (UTC), session")
+	full := fs.Bool("full", false, "verbose output: cmd, dir, date (UTC), session")
+	ids := fs.Bool("ids", false, "include the database record id as the first column")
 
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parse flags: %w", err)
@@ -128,11 +130,15 @@ func Run(args []string, store Querier, out io.Writer) error {
 
 	w := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
 	for _, r := range rows {
+		var prefix string
+		if *ids {
+			prefix = fmt.Sprintf("%d\t", r.ID)
+		}
 		if *full {
 			ts := time.Unix(r.Ts, 0).UTC().Format("2006-01-02 15:04")
-			fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\n", r.ID, r.Cmd, r.Dir, ts, r.Session)
+			fmt.Fprintf(w, "%s%s\t%s\t%s\t%s\n", prefix, r.Cmd, r.Dir, ts, r.Session)
 		} else {
-			fmt.Fprintf(w, "%d\t%s\n", r.ID, r.Cmd)
+			fmt.Fprintf(w, "%s%s\n", prefix, r.Cmd)
 		}
 	}
 	return w.Flush()

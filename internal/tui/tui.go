@@ -66,6 +66,10 @@ type Model struct {
 
 	focus focusZone
 
+	// showID controls whether the list table has an ID column. Off by
+	// default; enabled via `hist tui --ids`.
+	showID bool
+
 	rows   []record.Record
 	status string
 	errMsg string
@@ -88,8 +92,9 @@ type Model struct {
 
 // New builds a Model ready to run against store. currentSession and
 // currentDir seed nothing by default; the user opts into filtering by
-// pressing the corresponding toggle (see Update).
-func New(store Querier) Model {
+// pressing the corresponding toggle (see Update). showID adds the DB
+// record id as the leading table column.
+func New(store Querier, showID bool) Model {
 	mkInput := func(placeholder string) textinput.Model {
 		ti := textinput.New()
 		ti.Placeholder = placeholder
@@ -105,17 +110,13 @@ func New(store Querier) Model {
 	since := mkInput("YYYY-MM-DD…")
 
 	t := table.New(
-		table.WithColumns([]table.Column{
-			{Title: "ID", Width: 6},
-			{Title: "Time (UTC)", Width: 16},
-			{Title: "Dir", Width: 30},
-			{Title: "Command", Width: 60},
-		}),
+		table.WithColumns(tableColumns(showID)),
 		table.WithFocused(false),
 	)
 
 	m := Model{
 		store:          store,
+		showID:         showID,
 		search:         search,
 		dir:            dir,
 		session:        session,
@@ -127,6 +128,21 @@ func New(store Querier) Model {
 		height:         24,
 	}
 	return m
+}
+
+// tableColumns returns the list-table column definitions. The ID column is
+// included only when showID is set.
+func tableColumns(showID bool) []table.Column {
+	cols := make([]table.Column, 0, 4)
+	if showID {
+		cols = append(cols, table.Column{Title: "ID", Width: 6})
+	}
+	cols = append(cols,
+		table.Column{Title: "Time (UTC)", Width: 16},
+		table.Column{Title: "Dir", Width: 30},
+		table.Column{Title: "Command", Width: 60},
+	)
+	return cols
 }
 
 // Init implements tea.Model.
@@ -205,7 +221,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.rows = msg.rows
-		m.table.SetRows(rowsToTable(msg.rows))
+		m.table.SetRows(rowsToTable(msg.rows, m.showID))
 		return m, nil
 
 	case debounceMsg:
@@ -340,12 +356,19 @@ func (m *Model) layout() {
 		tableWidth = 20
 	}
 	cols := m.table.Columns()
-	if len(cols) == 4 {
-		cmdWidth := tableWidth - cols[0].Width - cols[1].Width - cols[2].Width - 8
+	if len(cols) >= 2 {
+		// The Command column (always last) flexes to fill the remaining
+		// width after the fixed leading columns.
+		last := len(cols) - 1
+		fixed := 0
+		for _, c := range cols[:last] {
+			fixed += c.Width
+		}
+		cmdWidth := tableWidth - fixed - 8
 		if cmdWidth < 10 {
 			cmdWidth = 10
 		}
-		cols[3].Width = cmdWidth
+		cols[last].Width = cmdWidth
 		m.table.SetColumns(cols)
 	}
 	m.table.SetWidth(tableWidth)
@@ -469,28 +492,30 @@ func truncate(s string, n int) string {
 	return string(r[:n-1]) + "…"
 }
 
-// rowsToTable converts history records into table rows for display.
-func rowsToTable(rows []record.Record) []table.Row {
+// rowsToTable converts history records into table rows for display. The
+// leading id cell is included only when showID is set, matching the column
+// set from tableColumns.
+func rowsToTable(rows []record.Record, showID bool) []table.Row {
 	out := make([]table.Row, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, table.Row{
-			fmt.Sprintf("%d", r.ID),
-			formatTs(r.Ts),
-			r.Dir,
-			r.Cmd,
-		})
+		row := make(table.Row, 0, 4)
+		if showID {
+			row = append(row, fmt.Sprintf("%d", r.ID))
+		}
+		row = append(row, formatTs(r.Ts), r.Dir, r.Cmd)
+		out = append(out, row)
 	}
 	return out
 }
 
 // Run launches the interactive TUI against store. It blocks until the user
-// quits.
-func Run(store Querier) error {
+// quits. showID adds the DB record id as the leading table column.
+func Run(store Querier, showID bool) error {
 	if !isInteractive() {
 		return fmt.Errorf("hist tui requires an interactive terminal")
 	}
 
-	m := New(store)
+	m := New(store, showID)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("run tui: %w", err)

@@ -39,7 +39,7 @@ func sampleRows() []record.Record {
 
 func TestNewInitializesFocusAndFields(t *testing.T) {
 	store := &fakeStore{rows: sampleRows()}
-	m := New(store)
+	m := New(store, false)
 
 	if m.focus != focusSearch {
 		t.Fatalf("expected initial focus focusSearch, got %v", m.focus)
@@ -54,7 +54,7 @@ func TestNewInitializesFocusAndFields(t *testing.T) {
 
 func TestInitTriggersInitialLoad(t *testing.T) {
 	store := &fakeStore{rows: sampleRows()}
-	m := New(store)
+	m := New(store, false)
 
 	cmd := m.Init()
 	if cmd == nil {
@@ -72,7 +72,7 @@ func TestInitTriggersInitialLoad(t *testing.T) {
 
 func TestUpdateFilterMsgPopulatesRowsAndTable(t *testing.T) {
 	store := &fakeStore{rows: sampleRows()}
-	m := New(store)
+	m := New(store, false)
 
 	updated, _ := m.Update(filterMsg{rows: sampleRows()})
 	mm := updated.(Model)
@@ -90,7 +90,7 @@ func TestUpdateFilterMsgPopulatesRowsAndTable(t *testing.T) {
 
 func TestUpdateFilterMsgSurfacesError(t *testing.T) {
 	store := &fakeStore{}
-	m := New(store)
+	m := New(store, false)
 
 	updated, _ := m.Update(filterMsg{err: errors.New("boom")})
 	mm := updated.(Model)
@@ -124,7 +124,7 @@ func findDebounceMsg(t *testing.T, cmd tea.Cmd) debounceMsg {
 
 func TestTypingInSearchSchedulesDebounceNotImmediateReload(t *testing.T) {
 	store := &fakeStore{rows: sampleRows()}
-	m := New(store)
+	m := New(store, false)
 
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("git")})
 	mm := updated.(Model)
@@ -146,7 +146,7 @@ func TestTypingInSearchSchedulesDebounceNotImmediateReload(t *testing.T) {
 
 func TestDebounceFiresReloadWhenGenerationStillCurrent(t *testing.T) {
 	store := &fakeStore{rows: sampleRows()}
-	m := New(store)
+	m := New(store, false)
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("git")})
 	mm := updated.(Model)
@@ -170,7 +170,7 @@ func TestDebounceFiresReloadWhenGenerationStillCurrent(t *testing.T) {
 
 func TestStaleDebounceIsDiscarded(t *testing.T) {
 	store := &fakeStore{rows: sampleRows()}
-	m := New(store)
+	m := New(store, false)
 
 	// Simulate an edit from an earlier generation arriving after a newer
 	// edit already bumped filterGen (e.g. the user kept typing).
@@ -188,10 +188,10 @@ func TestStaleDebounceIsDiscarded(t *testing.T) {
 
 func TestStaleFilterMsgIsDiscarded(t *testing.T) {
 	store := &fakeStore{}
-	m := New(store)
+	m := New(store, false)
 	m.filterGen = 2
 	m.rows = sampleRows()
-	m.table.SetRows(rowsToTable(m.rows))
+	m.table.SetRows(rowsToTable(m.rows, false))
 
 	// A filterMsg tagged with an older generation must not overwrite the
 	// current (newer) rows, since it was superseded before it arrived.
@@ -212,7 +212,7 @@ func TestDebounceUsesConfiguredDelay(t *testing.T) {
 
 func TestTabCyclesFocusThroughAllZones(t *testing.T) {
 	store := &fakeStore{}
-	m := New(store)
+	m := New(store, false)
 
 	want := []focusZone{focusDir, focusSession, focusSince, focusTable, focusSearch}
 	for i, w := range want {
@@ -226,7 +226,7 @@ func TestTabCyclesFocusThroughAllZones(t *testing.T) {
 
 func TestShiftTabCyclesBackward(t *testing.T) {
 	store := &fakeStore{}
-	m := New(store)
+	m := New(store, false)
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
 	m = updated.(Model)
@@ -237,7 +237,7 @@ func TestShiftTabCyclesBackward(t *testing.T) {
 
 func TestQOnlyQuitsWhenTableFocused(t *testing.T) {
 	store := &fakeStore{}
-	m := New(store)
+	m := New(store, false)
 
 	// focusSearch: "q" should be typed into the field, not quit.
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
@@ -263,7 +263,7 @@ func TestQOnlyQuitsWhenTableFocused(t *testing.T) {
 
 func TestEscAlwaysQuits(t *testing.T) {
 	store := &fakeStore{}
-	m := New(store)
+	m := New(store, false)
 
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	mm := updated.(Model)
@@ -277,9 +277,9 @@ func TestEscAlwaysQuits(t *testing.T) {
 
 func TestCopySelectedWritesCommandToClipboard(t *testing.T) {
 	store := &fakeStore{rows: sampleRows()}
-	m := New(store)
+	m := New(store, false)
 	m.rows = sampleRows()
-	m.table.SetRows(rowsToTable(m.rows))
+	m.table.SetRows(rowsToTable(m.rows, false))
 	m.focus = focusTable
 
 	var written string
@@ -307,9 +307,9 @@ func TestCopySelectedWritesCommandToClipboard(t *testing.T) {
 
 func TestCopySelectedSurfacesClipboardError(t *testing.T) {
 	store := &fakeStore{}
-	m := New(store)
+	m := New(store, false)
 	m.rows = sampleRows()
-	m.table.SetRows(rowsToTable(m.rows))
+	m.table.SetRows(rowsToTable(m.rows, false))
 	m.focus = focusTable
 	// Bump filterGen past its zero value, as a prior filter-field edit would.
 	// A clipboard error must surface regardless of filterGen, since it is no
@@ -338,7 +338,7 @@ func TestCopySelectedSurfacesClipboardError(t *testing.T) {
 
 func TestStatusMsgUpdatesStatusAndClearsError(t *testing.T) {
 	store := &fakeStore{}
-	m := New(store)
+	m := New(store, false)
 	m.errMsg = "stale error"
 
 	updated, _ := m.Update(statusMsg("copied to clipboard"))
@@ -353,7 +353,7 @@ func TestStatusMsgUpdatesStatusAndClearsError(t *testing.T) {
 
 func TestBuildFilterCombinesAllFields(t *testing.T) {
 	store := &fakeStore{}
-	m := New(store)
+	m := New(store, false)
 	m.search.SetValue(" git ")
 	m.dir.SetValue(" /home ")
 	m.session.SetValue(" s1 ")
@@ -376,7 +376,7 @@ func TestBuildFilterCombinesAllFields(t *testing.T) {
 
 func TestBuildFilterIgnoresMalformedSince(t *testing.T) {
 	store := &fakeStore{}
-	m := New(store)
+	m := New(store, false)
 	m.since.SetValue("not-a-date")
 
 	f := m.buildFilter()
@@ -463,18 +463,60 @@ func TestTruncateMultiByteRunes(t *testing.T) {
 
 func TestRowsToTable(t *testing.T) {
 	rows := sampleRows()
-	tr := rowsToTable(rows)
+
+	// Default: no id column — cells are time, dir, cmd.
+	tr := rowsToTable(rows, false)
 	if len(tr) != 3 {
 		t.Fatalf("expected 3 rows, got %d", len(tr))
 	}
-	if tr[0][0] != "1" || tr[0][3] != "ls -la" {
-		t.Errorf("row 0 = %v, want ID=1 Cmd=ls -la", tr[0])
+	if len(tr[0]) != 3 {
+		t.Fatalf("expected 3 cells without id, got %d: %v", len(tr[0]), tr[0])
+	}
+	if tr[0][2] != "ls -la" {
+		t.Errorf("row 0 = %v, want Cmd=ls -la in last cell", tr[0])
+	}
+	if tr[0][0] == "1" {
+		t.Errorf("row 0 unexpectedly leads with id: %v", tr[0])
+	}
+
+	// With showID: leading cell is the record id.
+	trID := rowsToTable(rows, true)
+	if len(trID[0]) != 4 {
+		t.Fatalf("expected 4 cells with id, got %d: %v", len(trID[0]), trID[0])
+	}
+	if trID[0][0] != "1" || trID[0][3] != "ls -la" {
+		t.Errorf("row 0 = %v, want ID=1 Cmd=ls -la", trID[0])
+	}
+}
+
+func TestTableColumnsRespectShowID(t *testing.T) {
+	if got := tableColumns(false); len(got) != 3 || got[0].Title != "Time (UTC)" {
+		t.Errorf("tableColumns(false) = %v, want 3 columns starting with Time (UTC)", got)
+	}
+	if got := tableColumns(true); len(got) != 4 || got[0].Title != "ID" {
+		t.Errorf("tableColumns(true) = %v, want 4 columns starting with ID", got)
+	}
+}
+
+func TestNewOmitsIDColumnByDefault(t *testing.T) {
+	store := &fakeStore{rows: sampleRows()}
+
+	m := New(store, false)
+	for _, c := range m.table.Columns() {
+		if c.Title == "ID" {
+			t.Fatalf("expected no ID column by default, got %v", m.table.Columns())
+		}
+	}
+
+	mID := New(store, true)
+	if mID.table.Columns()[0].Title != "ID" {
+		t.Fatalf("expected leading ID column with showID, got %v", mID.table.Columns())
 	}
 }
 
 func TestViewDoesNotPanic(t *testing.T) {
 	store := &fakeStore{rows: sampleRows()}
-	m := New(store)
+	m := New(store, false)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	mm := updated.(Model)
 	updated2, _ := mm.Update(filterMsg{rows: sampleRows()})
@@ -488,7 +530,7 @@ func TestViewDoesNotPanic(t *testing.T) {
 
 func TestViewEmptyWhenQuitting(t *testing.T) {
 	store := &fakeStore{}
-	m := New(store)
+	m := New(store, false)
 	m.quitting = true
 	if out := m.View(); out != "" {
 		t.Errorf("expected empty view when quitting, got %q", out)
