@@ -235,6 +235,117 @@ func TestShiftTabCyclesBackward(t *testing.T) {
 	}
 }
 
+func TestCtrlJJumpsFromFieldToTable(t *testing.T) {
+	store := &fakeStore{}
+	m := New(store, false)
+
+	// Move focus onto a field other than the first.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(Model)
+	if m.focus != focusDir {
+		t.Fatalf("setup: expected focusDir, got %v", m.focus)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m = updated.(Model)
+	if m.focus != focusTable {
+		t.Fatalf("expected ctrl+j to jump to focusTable, got %v", m.focus)
+	}
+	if !m.table.Focused() {
+		t.Fatal("expected table widget to be focused after ctrl+j")
+	}
+	if m.dir.Focused() {
+		t.Fatal("expected dir input to be blurred after ctrl+j")
+	}
+}
+
+func TestCtrlKRestoresLastFocusedField(t *testing.T) {
+	store := &fakeStore{}
+	m := New(store, false)
+
+	// Tab to focusSession.
+	for range 2 {
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+		m = updated.(Model)
+	}
+	if m.focus != focusSession {
+		t.Fatalf("setup: expected focusSession, got %v", m.focus)
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m = updated.(Model)
+	if m.focus != focusTable {
+		t.Fatalf("expected focusTable after ctrl+j, got %v", m.focus)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlK})
+	m = updated.(Model)
+	if m.focus != focusSession {
+		t.Fatalf("expected ctrl+k to restore focusSession, got %v", m.focus)
+	}
+	if !m.session.Focused() {
+		t.Fatal("expected session input to be focused after ctrl+k")
+	}
+}
+
+func TestCtrlKDefaultsToSearchWhenNoFieldTouched(t *testing.T) {
+	store := &fakeStore{}
+	m := New(store, false)
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlK})
+	m = updated.(Model)
+
+	if m.focus != focusSearch {
+		t.Fatalf("expected ctrl+k to default to focusSearch, got %v", m.focus)
+	}
+}
+
+func TestCtrlJNoOpOnTable(t *testing.T) {
+	store := &fakeStore{}
+	m := New(store, false)
+	m.focus = focusTable
+	m.table.Focus()
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m = updated.(Model)
+	if m.focus != focusTable {
+		t.Fatalf("expected ctrl+j on table to be a no-op, got %v", m.focus)
+	}
+}
+
+func TestCtrlKNoOpOnField(t *testing.T) {
+	store := &fakeStore{}
+	m := New(store, false)
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlK})
+	m = updated.(Model)
+	if m.focus != focusSearch {
+		t.Fatalf("expected ctrl+k on a field to be a no-op, got %v", m.focus)
+	}
+}
+
+func TestCtrlJDoesNotBreakTabCycling(t *testing.T) {
+	store := &fakeStore{}
+	m := New(store, false)
+
+	// Jump to the table and back, then verify Tab still cycles normally.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlK})
+	m = updated.(Model)
+
+	want := []focusZone{focusDir, focusSession, focusSince, focusTable, focusSearch}
+	for i, w := range want {
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+		m = updated.(Model)
+		if m.focus != w {
+			t.Fatalf("step %d: expected focus %v, got %v", i, w, m.focus)
+		}
+	}
+}
+
 func TestQOnlyQuitsWhenTableFocused(t *testing.T) {
 	store := &fakeStore{}
 	m := New(store, false)

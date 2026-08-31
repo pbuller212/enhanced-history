@@ -66,6 +66,11 @@ type Model struct {
 
 	focus focusZone
 
+	// lastField remembers the most recently focused filter field (one of
+	// focusSearch/focusDir/focusSession/focusSince) so ctrl+k can jump back
+	// to where the user was, rather than always the first field.
+	lastField focusZone
+
 	// showID controls whether the list table has an ID column. Off by
 	// default; enabled via `hist tui --ids`.
 	showID bool
@@ -123,6 +128,7 @@ func New(store Querier, showID bool) Model {
 		since:          since,
 		table:          t,
 		focus:          focusSearch,
+		lastField:      focusSearch,
 		clipboardWrite: clipboard.WriteAll,
 		width:          80,
 		height:         24,
@@ -263,6 +269,18 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "shift+tab":
 		m.advanceFocus(-1)
 		return m, nil
+	case "ctrl+j":
+		// Jump straight from any filter field to the table.
+		if m.focus != focusTable {
+			m.setFocus(focusTable)
+		}
+		return m, nil
+	case "ctrl+k":
+		// Jump from the table back to the last-focused filter field.
+		if m.focus == focusTable {
+			m.setFocus(m.lastField)
+		}
+		return m, nil
 	case "enter", "y":
 		if m.focus == focusTable {
 			return m, m.copySelected()
@@ -302,7 +320,14 @@ func (m *Model) advanceFocus(delta int) {
 		}
 	}
 	idx = (idx + delta + len(focusOrder)) % len(focusOrder)
-	m.focus = focusOrder[idx]
+	m.setFocus(focusOrder[idx])
+}
+
+// setFocus makes zone the focused zone: it blurs every widget, focuses the
+// one for zone, and records lastField when zone is a filter field so ctrl+k
+// can return to it.
+func (m *Model) setFocus(zone focusZone) {
+	m.focus = zone
 
 	m.search.Blur()
 	m.dir.Blur()
@@ -310,7 +335,7 @@ func (m *Model) advanceFocus(delta int) {
 	m.since.Blur()
 	m.table.Blur()
 
-	switch m.focus {
+	switch zone {
 	case focusSearch:
 		m.search.Focus()
 	case focusDir:
@@ -321,6 +346,10 @@ func (m *Model) advanceFocus(delta int) {
 		m.since.Focus()
 	case focusTable:
 		m.table.Focus()
+	}
+
+	if zone != focusTable {
+		m.lastField = zone
 	}
 }
 
@@ -411,7 +440,7 @@ func (m Model) View() string {
 		status = statusStyle.Render(m.status)
 	}
 
-	help := helpStyle.Render("tab: next field  •  enter/y: copy command  •  esc/ctrl+c: quit")
+	help := helpStyle.Render("tab: next field  •  ctrl+j/k: jump to table / back to fields  •  enter/y: copy command  •  esc/ctrl+c: quit")
 
 	return lipgloss.JoinVertical(lipgloss.Left,
 		titleStyle.Render("hist tui — history browser"),
