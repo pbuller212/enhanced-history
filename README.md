@@ -140,7 +140,7 @@ The `ID` column is hidden by default (it is a SQLite-internal detail); pass `--i
 - **Panel layout** — the main command list sits alongside a summary panel showing counts and top directories for the currently visible rows.
 - **Copy to clipboard** — select a row and press `enter` or `y` to copy its command text to the system clipboard. This is the only supported action; the TUI never deletes, edits, or re-runs a command.
 
-Keys: `tab` / `shift+tab` cycle focus between the filter fields and the table; `esc` or `ctrl+c` quits (`q` quits only while the table is focused, so it can still be typed into a filter field). `hist tui` requires a real interactive terminal.
+Keys: `tab` / `shift+tab` cycle focus between the filter fields and the table; `ctrl+j` jumps straight from any field to the table and `ctrl+k` jumps back to the last-focused field; `esc` or `ctrl+c` quits (`q` quits only while the table is focused, so it can still be typed into a filter field). `hist tui` requires a real interactive terminal.
 
 ## Database Location
 
