@@ -45,6 +45,7 @@ type Filter struct {
 	TsTo      int64
 	Dir       string
 	DirExact  bool
+	DirSubstr string
 	Session   string
 	CmdSubstr string
 }

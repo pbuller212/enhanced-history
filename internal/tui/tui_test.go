@@ -476,8 +476,11 @@ func TestBuildFilterCombinesAllFields(t *testing.T) {
 	if f.CmdSubstr != "git" {
 		t.Errorf("CmdSubstr = %q, want %q", f.CmdSubstr, "git")
 	}
-	if f.Dir != "/home" {
-		t.Errorf("Dir = %q, want %q", f.Dir, "/home")
+	if f.DirSubstr != "/home" {
+		t.Errorf("DirSubstr = %q, want %q", f.DirSubstr, "/home")
+	}
+	if f.Dir != "" {
+		t.Errorf("Dir = %q, want empty (TUI uses substring match)", f.Dir)
 	}
 	if f.Session != "s1" {
 		t.Errorf("Session = %q, want %q", f.Session, "s1")

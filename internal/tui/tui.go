@@ -109,7 +109,7 @@ func New(store Querier, showID bool) Model {
 
 	search := mkInput("substring…")
 	search.Focus()
-	dir := mkInput("dir prefix…")
+	dir := mkInput("dir contains…")
 	session := mkInput("session id…")
 	since := mkInput("YYYY-MM-DD…")
 
@@ -196,7 +196,7 @@ func (m Model) debounceReload() tea.Cmd {
 func (m Model) buildFilter() query.Filter {
 	var f query.Filter
 	f.CmdSubstr = strings.TrimSpace(m.search.Value())
-	f.Dir = strings.TrimSpace(m.dir.Value())
+	f.DirSubstr = strings.TrimSpace(m.dir.Value())
 	f.Session = strings.TrimSpace(m.session.Value())
 
 	since := strings.TrimSpace(m.since.Value())
