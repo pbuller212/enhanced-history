@@ -152,3 +152,99 @@ jobs:
               -H "Content-Type: application/octet-stream" \
               --data-binary "@${f}"
           done
+
+  mirror-github-release:
+    needs: [tag, build, release]
+    runs-on: ubuntu
+    steps:
+      - name: Download linux-amd64
+        uses: https://code.forgejo.org/forgejo/download-artifact@v4
+        with:
+          name: hist-linux-amd64
+          path: dist/release
+
+      - name: Download linux-arm64
+        uses: https://code.forgejo.org/forgejo/download-artifact@v4
+        with:
+          name: hist-linux-arm64
+          path: dist/release
+
+      - name: Create GitHub release and upload binaries
+        env:
+          GH_RELEASE_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.tag.outputs.tag }}
+          SERVER_URL: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+          GH_REPO: pbuller212/enhanced-history
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GH_RELEASE_TOKEN:-}" ]; then
+            echo "WARNING: secrets.GH_RELEASE_TOKEN is not set; skipping GitHub release mirror."
+            exit 0
+          fi
+
+          GH_API="https://api.github.com"
+          AUTH_HEADER="Authorization: Bearer ${GH_RELEASE_TOKEN}"
+
+          # Reuse the title and notes from the Forgejo release.
+          FORGEJO_RELEASE=$(curl -sf "${SERVER_URL}/api/v1/repos/${REPO}/releases/tags/${TAG}" \
+            -H "Authorization: token ${GITHUB_TOKEN}")
+          RELEASE_NAME=$(echo "$FORGEJO_RELEASE" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("name") or "")')
+          RELEASE_BODY=$(echo "$FORGEJO_RELEASE" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("body") or "")')
+          [ -n "$RELEASE_NAME" ] || RELEASE_NAME="${TAG}"
+
+          # Idempotency: look up by tag first, in case this job re-runs.
+          HTTP_CODE=$(curl -s -o /tmp/gh_release_lookup.json -w "%{http_code}" \
+            "${GH_API}/repos/${GH_REPO}/releases/tags/${TAG}" \
+            -H "${AUTH_HEADER}" \
+            -H "Accept: application/vnd.github+json")
+
+          if [ "$HTTP_CODE" -eq 200 ]; then
+            RELEASE_JSON=/tmp/gh_release_lookup.json
+          elif [ "$HTTP_CODE" -eq 404 ]; then
+            # The push mirror may not have delivered the tag yet; GitHub
+            # creates it from target_commitish if it is missing.
+            PAYLOAD=$(RELEASE_NAME="$RELEASE_NAME" RELEASE_BODY="$RELEASE_BODY" TAG="$TAG" TARGET="${GITHUB_SHA:-}" \
+              python3 -c 'import json,os; print(json.dumps({"tag_name": os.environ["TAG"], "target_commitish": os.environ["TARGET"], "name": os.environ["RELEASE_NAME"], "body": os.environ["RELEASE_BODY"]}))')
+            HTTP_CODE=$(curl -s -o /tmp/gh_release_create.json -w "%{http_code}" -X POST \
+              "${GH_API}/repos/${GH_REPO}/releases" \
+              -H "${AUTH_HEADER}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "Content-Type: application/json" \
+              -d "${PAYLOAD}")
+            [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ] || {
+              echo "ERROR: GitHub release POST failed (HTTP ${HTTP_CODE}): $(cat /tmp/gh_release_create.json)"
+              exit 1
+            }
+            RELEASE_JSON=/tmp/gh_release_create.json
+          else
+            echo "ERROR: unexpected HTTP ${HTTP_CODE} looking up GitHub release for tag ${TAG}: $(cat /tmp/gh_release_lookup.json)"
+            exit 1
+          fi
+
+          GH_RELEASE_ID=$(RELEASE_JSON="$RELEASE_JSON" python3 -c 'import json,os; print(json.load(open(os.environ["RELEASE_JSON"]))["id"])')
+          # Assets go to uploads.github.com; use the upload_url from the
+          # release response, minus its trailing {?name,label} template.
+          UPLOAD_URL=$(RELEASE_JSON="$RELEASE_JSON" python3 -c 'import json,os; print(json.load(open(os.environ["RELEASE_JSON"]))["upload_url"].split("{")[0])')
+
+          echo "GitHub release ID: ${GH_RELEASE_ID}"
+
+          # Skip assets already uploaded so re-runs don't fail on duplicates.
+          EXISTING_ASSETS=$(curl -sf "${GH_API}/repos/${GH_REPO}/releases/${GH_RELEASE_ID}/assets" \
+            -H "${AUTH_HEADER}" -H "Accept: application/vnd.github+json" \
+            | python3 -c 'import json,sys; print("\n".join(a["name"] for a in json.load(sys.stdin)))')
+
+          for f in dist/release/*; do
+            NAME=$(basename "${f}")
+            if echo "$EXISTING_ASSETS" | grep -qx "$NAME"; then
+              echo "Skipping ${NAME} (already uploaded to GitHub release)"
+              continue
+            fi
+            echo "Uploading ${NAME} to GitHub..."
+            curl -sfS -X POST "${UPLOAD_URL}?name=${NAME}" \
+              -H "${AUTH_HEADER}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@${f}"
+          done
