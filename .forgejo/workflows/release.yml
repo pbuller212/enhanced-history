@@ -157,6 +157,11 @@ jobs:
     needs: [tag, build, release]
     runs-on: ubuntu
     steps:
+      - uses: https://code.forgejo.org/actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
       - name: Download linux-amd64
         uses: https://code.forgejo.org/forgejo/download-artifact@v4
         with:
@@ -195,10 +200,28 @@ jobs:
           RELEASE_BODY=$(echo "$FORGEJO_RELEASE" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("body") or "")')
           [ -n "$RELEASE_NAME" ] || RELEASE_NAME="${TAG}"
 
-          # The Forgejo push mirror copies the tag to GitHub asynchronously, so
-          # wait for it to exist there before creating the release (up to ~15 min).
+          # Push the tag (and its commits) to GitHub ourselves rather than
+          # waiting on the Forgejo push mirror, which syncs on its own schedule.
+          # Only push when the tag is missing; never force, so a tag that
+          # already points elsewhere on GitHub fails the job instead of moving.
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${GH_API}/repos/${GH_REPO}/git/ref/tags/${TAG}" \
+            -H "${AUTH_HEADER}" \
+            -H "Accept: application/vnd.github+json")
+          if [ "$HTTP_CODE" -eq 404 ]; then
+            echo "Pushing tag ${TAG} to ${GH_REPO}..."
+            git fetch --tags --quiet origin
+            git push "https://x-access-token:${GH_RELEASE_TOKEN}@github.com/${GH_REPO}.git" \
+              "refs/tags/${TAG}:refs/tags/${TAG}"
+          elif [ "$HTTP_CODE" -ne 200 ]; then
+            echo "ERROR: unexpected HTTP ${HTTP_CODE} checking tag ${TAG} on GitHub"
+            exit 1
+          fi
+
+          # Confirm the tag is visible on GitHub (the push mirror may also have
+          # delivered it) before creating the release; short wait for propagation.
           TAG_FOUND=0
-          for i in $(seq 1 30); do
+          for i in $(seq 1 10); do
             HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
               "${GH_API}/repos/${GH_REPO}/git/ref/tags/${TAG}" \
               -H "${AUTH_HEADER}" \
@@ -207,11 +230,11 @@ jobs:
               TAG_FOUND=1
               break
             fi
-            echo "Tag ${TAG} not on GitHub yet (HTTP ${HTTP_CODE}); waiting (${i}/30)..."
-            sleep 30
+            echo "Tag ${TAG} not on GitHub yet (HTTP ${HTTP_CODE}); waiting (${i}/10)..."
+            sleep 6
           done
           if [ "$TAG_FOUND" -ne 1 ]; then
-            echo "ERROR: tag ${TAG} never appeared on ${GH_REPO}. Check the Forgejo push mirror (Settings -> Repository -> Mirror settings), then re-run this job."
+            echo "ERROR: tag ${TAG} never appeared on ${GH_REPO}."
             exit 1
           fi
 
