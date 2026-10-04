@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main  # update here if the default branch changes
+    tags:
+      - "v*"
 
 permissions:
   contents: write
@@ -12,13 +14,27 @@ jobs:
   tag:
     runs-on: ubuntu
     outputs:
-      tag: ${{ steps.bump.outputs.tag }}
+      tag: ${{ steps.pushed.outputs.tag || steps.bump.outputs.tag }}
     steps:
       - uses: https://code.forgejo.org/actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Use pushed tag
+        if: github.ref_type == 'tag'
+        id: pushed
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || {
+            echo "ERROR: tag ${TAG} is not vMAJOR.MINOR.PATCH"
+            exit 1
+          }
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
       - name: Compute next patch version and push tag
+        if: github.ref_type == 'branch'
         id: bump
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
