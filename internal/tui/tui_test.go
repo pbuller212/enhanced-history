@@ -2,10 +2,12 @@ package tui
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"enhanced-history/internal/query"
 	"enhanced-history/internal/record"
@@ -522,56 +524,6 @@ func TestFormatTs(t *testing.T) {
 	}
 }
 
-func TestTopNOrdersByCountThenKey(t *testing.T) {
-	counts := map[string]int{
-		"a": 2,
-		"b": 5,
-		"c": 5,
-		"d": 1,
-	}
-	got := topN(counts, 2)
-	if len(got) != 2 {
-		t.Fatalf("expected 2 entries, got %d", len(got))
-	}
-	if got[0].key != "b" || got[0].count != 5 {
-		t.Errorf("entry 0 = %+v, want {b 5}", got[0])
-	}
-	if got[1].key != "c" || got[1].count != 5 {
-		t.Errorf("entry 1 = %+v, want {c 5}", got[1])
-	}
-}
-
-func TestTruncate(t *testing.T) {
-	if got := truncate("short", 20); got != "short" {
-		t.Errorf("truncate short string changed it: %q", got)
-	}
-	got := truncate("this is a long string", 10)
-	if len([]rune(got)) != 10 {
-		t.Errorf("truncate length = %d, want 10", len([]rune(got)))
-	}
-}
-
-func TestTruncateMultiByteRunes(t *testing.T) {
-	// Directory names can contain multi-byte UTF-8 (e.g. "/home/café", CJK,
-	// emoji); truncation must slice by rune, not by byte, or it can split a
-	// multi-byte sequence and corrupt the output or panic.
-	s := "/home/日本語/café/📁project"
-	got := truncate(s, 10)
-	if n := len([]rune(got)); n != 10 {
-		t.Fatalf("truncate rune length = %d, want 10: %q", n, got)
-	}
-	if want := "/home/日本語" + "…"; got != want {
-		t.Errorf("truncate(%q, 10) = %q, want %q", s, got, want)
-	}
-
-	// A string shorter than n in runes but longer in bytes must be returned
-	// unchanged.
-	short := "日本語"
-	if got := truncate(short, 20); got != short {
-		t.Errorf("truncate short multi-byte string changed it: %q", got)
-	}
-}
-
 func TestRowsToTable(t *testing.T) {
 	rows := sampleRows()
 
@@ -645,5 +597,54 @@ func TestViewEmptyWhenQuitting(t *testing.T) {
 	m.quitting = true
 	if out := m.View(); out != "" {
 		t.Errorf("expected empty view when quitting, got %q", out)
+	}
+}
+
+func sizedModel(t *testing.T, width, height int) Model {
+	t.Helper()
+	m := New(&fakeStore{rows: sampleRows()}, false)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: width, Height: height})
+	updated2, _ := updated.(Model).Update(filterMsg{rows: sampleRows()})
+	return updated2.(Model)
+}
+
+func TestLayoutTableFillsTerminalWidth(t *testing.T) {
+	for _, width := range []int{120, 200} {
+		m := sizedModel(t, width, 30)
+
+		// The table panel adds a border (2) and horizontal padding (2).
+		if got, want := m.table.Width(), width-4; got != want {
+			t.Errorf("width %d: table width = %d, want %d", width, got, want)
+		}
+		for _, line := range strings.Split(m.View(), "\n") {
+			if w := lipgloss.Width(line); w > width {
+				t.Errorf("width %d: rendered line is %d wide: %q", width, w, line)
+			}
+		}
+	}
+}
+
+func TestLayoutCmdColumnAbsorbsExtraWidth(t *testing.T) {
+	narrow := sizedModel(t, 100, 30)
+	wide := sizedModel(t, 140, 30)
+
+	nCols, wCols := narrow.table.Columns(), wide.table.Columns()
+	last := len(nCols) - 1
+	if got, want := wCols[last].Width-nCols[last].Width, 40; got != want {
+		t.Errorf("Cmd column grew by %d, want %d", got, want)
+	}
+	for i := 0; i < last; i++ {
+		if nCols[i].Width != wCols[i].Width {
+			t.Errorf("column %d width changed: %d -> %d", i, nCols[i].Width, wCols[i].Width)
+		}
+	}
+}
+
+func TestViewHasNoSummaryPanel(t *testing.T) {
+	out := sizedModel(t, 120, 30).View()
+	for _, s := range []string{"Top dirs", "commands", "sessions", "dirs"} {
+		if strings.Contains(out, s) {
+			t.Errorf("view contains summary text %q", s)
+		}
 	}
 }

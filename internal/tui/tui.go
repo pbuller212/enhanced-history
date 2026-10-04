@@ -6,7 +6,6 @@ package tui
 import (
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 	"time"
 
@@ -380,7 +379,8 @@ type clipboardErrMsg struct{ err error }
 
 // layout recomputes component widths/heights from the current terminal size.
 func (m *Model) layout() {
-	tableWidth := m.width - summaryPanelWidth - 6
+	// The table panel adds a border (2) and horizontal padding (2).
+	tableWidth := m.width - 4
 	if tableWidth < 20 {
 		tableWidth = 20
 	}
@@ -408,8 +408,6 @@ func (m *Model) layout() {
 	m.table.SetHeight(tableHeight)
 }
 
-const summaryPanelWidth = 28
-
 // View implements tea.Model.
 func (m Model) View() string {
 	if m.quitting {
@@ -429,10 +427,6 @@ func (m Model) View() string {
 	}
 	tablePanel := tableStyle.Render(m.table.View())
 
-	summary := panelStyle.Width(summaryPanelWidth).Render(m.renderSummary())
-
-	main := lipgloss.JoinHorizontal(lipgloss.Top, tablePanel, summary)
-
 	status := ""
 	if m.errMsg != "" {
 		status = errStyle.Render("error: " + m.errMsg)
@@ -445,7 +439,7 @@ func (m Model) View() string {
 	return lipgloss.JoinVertical(lipgloss.Left,
 		titleStyle.Render("hist tui — history browser"),
 		filters,
-		main,
+		tablePanel,
 		status,
 		help,
 	)
@@ -457,68 +451,6 @@ func (m Model) renderField(label string, ti textinput.Model, zone focusZone) str
 		style = activePanelStyle.Width(20)
 	}
 	return style.Render(fmt.Sprintf("%s\n%s", label, ti.View()))
-}
-
-// renderSummary builds the session/directory overview panel from the
-// currently-visible rows.
-func (m Model) renderSummary() string {
-	if len(m.rows) == 0 {
-		return "No matches"
-	}
-
-	dirCounts := map[string]int{}
-	sessionCounts := map[string]int{}
-	for _, r := range m.rows {
-		dirCounts[r.Dir]++
-		sessionCounts[r.Session]++
-	}
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "%d commands\n", len(m.rows))
-	fmt.Fprintf(&b, "%d sessions\n", len(sessionCounts))
-	fmt.Fprintf(&b, "%d dirs\n\n", len(dirCounts))
-
-	b.WriteString("Top dirs:\n")
-	for _, dc := range topN(dirCounts, 5) {
-		fmt.Fprintf(&b, " %3d  %s\n", dc.count, truncate(dc.key, 20))
-	}
-
-	return b.String()
-}
-
-type countEntry struct {
-	key   string
-	count int
-}
-
-// topN returns the top-N entries of counts sorted by count descending, then
-// key ascending for a stable order.
-func topN(counts map[string]int, n int) []countEntry {
-	entries := make([]countEntry, 0, len(counts))
-	for k, v := range counts {
-		entries = append(entries, countEntry{key: k, count: v})
-	}
-	sort.Slice(entries, func(i, j int) bool {
-		if entries[i].count != entries[j].count {
-			return entries[i].count > entries[j].count
-		}
-		return entries[i].key < entries[j].key
-	})
-	if len(entries) > n {
-		entries = entries[:n]
-	}
-	return entries
-}
-
-func truncate(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	if n <= 1 {
-		return string(r[:n])
-	}
-	return string(r[:n-1]) + "…"
 }
 
 // rowsToTable converts history records into table rows for display. The
