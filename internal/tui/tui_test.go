@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -648,6 +649,168 @@ func TestViewHasNoSummaryPanel(t *testing.T) {
 	for _, s := range []string{"Top dirs", "commands", "sessions", "dirs"} {
 		if strings.Contains(out, s) {
 			t.Errorf("view contains summary text %q", s)
+		}
+	}
+}
+
+// --- mouse ---
+
+func manyRows(n int) []record.Record {
+	rows := make([]record.Record, n)
+	for i := range rows {
+		rows[i] = record.Record{
+			ID: int64(i + 1), Ts: 1700000000 + int64(i)*60,
+			Dir: "/tmp", Cmd: "cmd-" + strings.Repeat("x", i%7) + string(rune('a'+i%26)) + strconv.Itoa(i),
+		}
+	}
+	return rows
+}
+
+func mouseModel(t *testing.T, n int) Model {
+	t.Helper()
+	m := New(&fakeStore{}, false)
+	m.rows = manyRows(n)
+	m.table.SetRows(rowsToTable(m.rows, false))
+	m.clipboardWrite = func(string) error { return nil }
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	return next.(Model)
+}
+
+func click(m Model, x, y int) Model {
+	next, _ := m.Update(tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	return next.(Model)
+}
+
+func rowY(m Model, visibleLine int) int {
+	return m.regions().table.y + 2 + visibleLine
+}
+
+func TestClickFilterFieldsFocusesAndTracksLastField(t *testing.T) {
+	m := mouseModel(t, 5)
+	reg := m.regions()
+	for _, zone := range []focusZone{focusSince, focusDir, focusSession, focusSearch} {
+		r := reg.fields[zone]
+		m = click(m, r.x+2, r.y+1)
+		if m.focus != zone || m.lastField != zone {
+			t.Fatalf("click on %v: focus=%v lastField=%v", zone, m.focus, m.lastField)
+		}
+	}
+	m = click(m, reg.fields[focusDir].x+1, reg.fields[focusDir].y)
+	if !m.dir.Focused() || m.search.Focused() {
+		t.Fatal("expected only dir input focused")
+	}
+}
+
+func TestClickTableFocusesAndSelectsRow(t *testing.T) {
+	m := mouseModel(t, 5)
+	m = click(m, 5, rowY(m, 2))
+	if m.focus != focusTable || m.table.Cursor() != 2 {
+		t.Fatalf("focus=%v cursor=%d", m.focus, m.table.Cursor())
+	}
+	// ctrl+k returns to the last filter field.
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlK})
+	if next.(Model).focus != focusSearch {
+		t.Fatal("ctrl+k should return to search")
+	}
+}
+
+func TestClickTableAfterScrollingPastOnePage(t *testing.T) {
+	m := mouseModel(t, 100)
+	m.setFocus(focusTable)
+	m.table.MoveDown(60)
+	off := m.tableOffset()
+	if off == 0 || m.table.Cursor() < off || m.table.Cursor() >= off+m.table.Height() {
+		t.Fatalf("bad derived offset %d for cursor %d", off, m.table.Cursor())
+	}
+	m = click(m, 5, rowY(m, 1))
+	if m.table.Cursor() != off+1 {
+		t.Fatalf("cursor=%d want %d", m.table.Cursor(), off+1)
+	}
+}
+
+func TestClickHeaderBorderAndBelowLastRowOnlyFocus(t *testing.T) {
+	m := mouseModel(t, 2)
+	m.table.SetCursor(1)
+	reg := m.regions()
+	for _, y := range []int{reg.table.y, reg.table.y + 1, rowY(m, 5)} {
+		m = click(m, 5, y)
+		if m.focus != focusTable || m.table.Cursor() != 1 {
+			t.Fatalf("y=%d focus=%v cursor=%d", y, m.focus, m.table.Cursor())
+		}
+		m.setFocus(focusSearch)
+	}
+}
+
+func TestWheelMovesCursorWithoutChangingFocus(t *testing.T) {
+	m := mouseModel(t, 20)
+	y := rowY(m, 0)
+	next, _ := m.Update(tea.MouseMsg{X: 5, Y: y, Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
+	m = next.(Model)
+	if m.table.Cursor() != wheelStep || m.focus != focusSearch {
+		t.Fatalf("cursor=%d focus=%v", m.table.Cursor(), m.focus)
+	}
+	next, _ = m.Update(tea.MouseMsg{X: 5, Y: y, Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress})
+	if next.(Model).table.Cursor() != 0 {
+		t.Fatal("wheel up should move back")
+	}
+}
+
+func TestDoubleClickCopies(t *testing.T) {
+	m := mouseModel(t, 5)
+	var copied string
+	m.clipboardWrite = func(s string) error { copied = s; return nil }
+	clock := time.Unix(1000, 0)
+	m.now = func() time.Time { return clock }
+
+	run := func(m Model, y int) (Model, tea.Cmd) {
+		next, cmd := m.Update(tea.MouseMsg{X: 5, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+		return next.(Model), cmd
+	}
+
+	m, cmd := run(m, rowY(m, 1))
+	if cmd != nil {
+		t.Fatal("single click must not copy")
+	}
+	clock = clock.Add(100 * time.Millisecond)
+	_, cmd = run(m, rowY(m, 1))
+	if cmd == nil {
+		t.Fatal("double click should copy")
+	}
+	cmd()
+	if copied != m.rows[1].Cmd {
+		t.Fatalf("copied %q", copied)
+	}
+}
+
+func TestSlowOrDifferentRowSecondClickDoesNotCopy(t *testing.T) {
+	m := mouseModel(t, 5)
+	clock := time.Unix(1000, 0)
+	m.now = func() time.Time { return clock }
+	m = click(m, 5, rowY(m, 1))
+
+	next, cmd := m.Update(tea.MouseMsg{X: 5, Y: rowY(m, 2), Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	if cmd != nil {
+		t.Fatal("different row must not copy")
+	}
+	m = click(next.(Model), 5, rowY(m, 1))
+	clock = clock.Add(time.Second)
+	_, cmd = m.Update(tea.MouseMsg{X: 5, Y: rowY(m, 1), Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	if cmd != nil {
+		t.Fatal("slow second click must not copy")
+	}
+}
+
+func TestMouseReleaseMotionAndOtherButtonsIgnored(t *testing.T) {
+	m := mouseModel(t, 5)
+	y := rowY(m, 1)
+	for _, ev := range []tea.MouseMsg{
+		{X: 5, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease},
+		{X: 5, Y: y, Button: tea.MouseButtonNone, Action: tea.MouseActionMotion},
+		{X: 5, Y: y, Button: tea.MouseButtonRight, Action: tea.MouseActionPress},
+	} {
+		next, cmd := m.Update(ev)
+		if cmd != nil || next.(Model).focus != focusSearch {
+			t.Fatalf("event %+v should be ignored", ev)
 		}
 	}
 }

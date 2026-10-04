@@ -91,6 +91,14 @@ type Model struct {
 	// system clipboard.
 	clipboardWrite func(string) error
 
+	// now is overridable in tests to control double-click timing.
+	now func() time.Time
+
+	// lastClickAt/lastClickRow remember the previous table-row click so a
+	// second click on the same row within doubleClickWindow copies it.
+	lastClickAt  time.Time
+	lastClickRow int
+
 	quitting bool
 }
 
@@ -129,6 +137,8 @@ func New(store Querier, showID bool) Model {
 		focus:          focusSearch,
 		lastField:      focusSearch,
 		clipboardWrite: clipboard.WriteAll,
+		now:            time.Now,
+		lastClickRow:   -1,
 		width:          80,
 		height:         24,
 	}
@@ -247,6 +257,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+
+	case tea.MouseMsg:
+		return m.handleMouse(msg)
 	}
 
 	return m, nil
@@ -414,18 +427,8 @@ func (m Model) View() string {
 		return ""
 	}
 
-	filters := lipgloss.JoinHorizontal(lipgloss.Top,
-		m.renderField("Search", m.search, focusSearch),
-		m.renderField("Dir", m.dir, focusDir),
-		m.renderField("Session", m.session, focusSession),
-		m.renderField("Since", m.since, focusSince),
-	)
-
-	tableStyle := panelStyle
-	if m.focus == focusTable {
-		tableStyle = activePanelStyle
-	}
-	tablePanel := tableStyle.Render(m.table.View())
+	filters := m.renderFilters()
+	tablePanel := m.renderTablePanel()
 
 	status := ""
 	if m.errMsg != "" {
@@ -434,7 +437,7 @@ func (m Model) View() string {
 		status = statusStyle.Render(m.status)
 	}
 
-	help := helpStyle.Render("tab: next field  •  ctrl+j/k: jump to table / back to fields  •  enter/y: copy command  •  esc/ctrl+c: quit")
+	help := helpStyle.Render("tab: next • ctrl+j/k: table/fields • enter: copy • shift+drag: select • esc: quit")
 
 	return lipgloss.JoinVertical(lipgloss.Left,
 		titleStyle.Render("hist tui — history browser"),
@@ -443,6 +446,25 @@ func (m Model) View() string {
 		status,
 		help,
 	)
+}
+
+// renderFilters renders the row of filter-field panels.
+func (m Model) renderFilters() string {
+	return lipgloss.JoinHorizontal(lipgloss.Top,
+		m.renderField("Search", m.search, focusSearch),
+		m.renderField("Dir", m.dir, focusDir),
+		m.renderField("Session", m.session, focusSession),
+		m.renderField("Since", m.since, focusSince),
+	)
+}
+
+// renderTablePanel renders the bordered results table.
+func (m Model) renderTablePanel() string {
+	style := panelStyle
+	if m.focus == focusTable {
+		style = activePanelStyle
+	}
+	return style.Render(m.table.View())
 }
 
 func (m Model) renderField(label string, ti textinput.Model, zone focusZone) string {
@@ -477,7 +499,7 @@ func Run(store Querier, showID bool) error {
 	}
 
 	m := New(store, showID)
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("run tui: %w", err)
 	}
