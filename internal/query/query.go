@@ -136,9 +136,9 @@ func Run(args []string, store Querier, out io.Writer) error {
 		}
 		if *full {
 			ts := time.Unix(r.Ts, 0).UTC().Format("2006-01-02 15:04")
-			fmt.Fprintf(w, "%s%s\t%s\t%s\t%s\n", prefix, r.Cmd, r.Dir, ts, r.Session)
+			fmt.Fprintf(w, "%s %s\t%s\t%s\t%s\n", prefix, r.Cmd, r.Dir, ts, r.Session)
 		} else {
-			fmt.Fprintf(w, "%s%s\n", prefix, r.Cmd)
+			fmt.Fprintf(w, "%s %s\n", prefix, r.Cmd)
 		}
 	}
 	return w.Flush()
