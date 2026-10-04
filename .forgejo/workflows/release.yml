@@ -210,7 +210,11 @@ jobs:
             -H "Accept: application/vnd.github+json")
           if [ "$HTTP_CODE" -eq 404 ]; then
             echo "Pushing tag ${TAG} to ${GH_REPO}..."
-            git fetch --tags --quiet origin
+            # checkout with fetch-depth 0 already fetched all tags
+            git rev-parse -q --verify "refs/tags/${TAG}^{commit}" >/dev/null || {
+              echo "ERROR: tag ${TAG} is not present in the local checkout"
+              exit 1
+            }
             git push "https://x-access-token:${GH_RELEASE_TOKEN}@github.com/${GH_REPO}.git" \
               "refs/tags/${TAG}:refs/tags/${TAG}"
           elif [ "$HTTP_CODE" -ne 200 ]; then
