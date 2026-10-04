@@ -195,6 +195,26 @@ jobs:
           RELEASE_BODY=$(echo "$FORGEJO_RELEASE" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("body") or "")')
           [ -n "$RELEASE_NAME" ] || RELEASE_NAME="${TAG}"
 
+          # The Forgejo push mirror copies the tag to GitHub asynchronously, so
+          # wait for it to exist there before creating the release (up to ~15 min).
+          TAG_FOUND=0
+          for i in $(seq 1 30); do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+              "${GH_API}/repos/${GH_REPO}/git/ref/tags/${TAG}" \
+              -H "${AUTH_HEADER}" \
+              -H "Accept: application/vnd.github+json")
+            if [ "$HTTP_CODE" -eq 200 ]; then
+              TAG_FOUND=1
+              break
+            fi
+            echo "Tag ${TAG} not on GitHub yet (HTTP ${HTTP_CODE}); waiting (${i}/30)..."
+            sleep 30
+          done
+          if [ "$TAG_FOUND" -ne 1 ]; then
+            echo "ERROR: tag ${TAG} never appeared on ${GH_REPO}. Check the Forgejo push mirror (Settings -> Repository -> Mirror settings), then re-run this job."
+            exit 1
+          fi
+
           # Idempotency: look up by tag first, in case this job re-runs.
           HTTP_CODE=$(curl -s -o /tmp/gh_release_lookup.json -w "%{http_code}" \
             "${GH_API}/repos/${GH_REPO}/releases/tags/${TAG}" \
@@ -204,10 +224,8 @@ jobs:
           if [ "$HTTP_CODE" -eq 200 ]; then
             RELEASE_JSON=/tmp/gh_release_lookup.json
           elif [ "$HTTP_CODE" -eq 404 ]; then
-            # The push mirror may not have delivered the tag yet; GitHub
-            # creates it from target_commitish if it is missing.
-            PAYLOAD=$(RELEASE_NAME="$RELEASE_NAME" RELEASE_BODY="$RELEASE_BODY" TAG="$TAG" TARGET="${GITHUB_SHA:-}" \
-              python3 -c 'import json,os; print(json.dumps({"tag_name": os.environ["TAG"], "target_commitish": os.environ["TARGET"], "name": os.environ["RELEASE_NAME"], "body": os.environ["RELEASE_BODY"]}))')
+            PAYLOAD=$(RELEASE_NAME="$RELEASE_NAME" RELEASE_BODY="$RELEASE_BODY" TAG="$TAG" \
+              python3 -c 'import json,os; print(json.dumps({"tag_name": os.environ["TAG"], "name": os.environ["RELEASE_NAME"], "body": os.environ["RELEASE_BODY"]}))')
             HTTP_CODE=$(curl -s -o /tmp/gh_release_create.json -w "%{http_code}" -X POST \
               "${GH_API}/repos/${GH_REPO}/releases" \
               -H "${AUTH_HEADER}" \
