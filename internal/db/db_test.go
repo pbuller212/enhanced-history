@@ -136,6 +136,62 @@ func TestFilterDirExact(t *testing.T) {
 	}
 }
 
+func TestFilterDirSubstr(t *testing.T) {
+	db := openTemp(t)
+	for _, d := range []string{"/home/me/projects/foo/src", "/home/me/bar", "/tmp/foo"} {
+		if err := db.Insert(record.Record{Ts: 1, Dir: d, Session: "s", Cmd: "cmd"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rows, err := db.Query(query.Filter{DirSubstr: "foo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows containing foo, got %d", len(rows))
+	}
+
+	rows, err = db.Query(query.Filter{DirSubstr: "nomatch"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("expected 0 rows, got %d", len(rows))
+	}
+
+	// Dir remains a prefix match: "foo" is not a prefix of any dir.
+	rows, err = db.Query(query.Filter{Dir: "foo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("Dir must stay prefix-only, got %d rows", len(rows))
+	}
+}
+
+func TestFilterDirSubstrWildcardsEscaped(t *testing.T) {
+	db := openTemp(t)
+	for _, d := range []string{"/a/user_projects", "/a/userXprojects", "/a/50%off", "/a/50xoff", `/a/back\slash`, "/a/backXslash"} {
+		if err := db.Insert(record.Record{Ts: 1, Dir: d, Session: "s", Cmd: "cmd"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for substr, want := range map[string]string{
+		"user_p": "/a/user_projects",
+		"50%o":   "/a/50%off",
+		`back\s`: `/a/back\slash`,
+	} {
+		rows, err := db.Query(query.Filter{DirSubstr: substr})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) != 1 || rows[0].Dir != want {
+			t.Errorf("DirSubstr %q: got %v, want only %q", substr, rows, want)
+		}
+	}
+}
+
 func TestFilterSession(t *testing.T) {
 	db := openTemp(t)
 
