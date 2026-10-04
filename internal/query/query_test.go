@@ -55,9 +55,35 @@ func TestRunOutputFormat(t *testing.T) {
 	}
 
 	got := buf.String()
-	// Default (terse) output is just the command — no record id.
-	if got != "ls -la\n" {
-		t.Errorf("output format: got %q, want %q", got, "ls -la\n")
+	// Default (terse) output is just the command, with one leading space — no record id.
+	if got != " ls -la\n" {
+		t.Errorf("output format: got %q, want %q", got, " ls -la\n")
+	}
+}
+
+func TestRunLeadingSpaceBeforeCommand(t *testing.T) {
+	rows := []record.Record{{ID: 42, Ts: 0, Dir: "/d", Session: "s", Cmd: "ls"}}
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"default", []string{}, " ls\n"},
+		{"ids", []string{"--ids"}, "42    ls\n"},
+		{"full", []string{"--full"}, " ls   /d   1970-01-01 00:00   s\n"},
+		{"full+ids", []string{"--full", "--ids"}, "42    ls   /d   1970-01-01 00:00   s\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := Run(tt.args, &stubQuerier{rows: rows}, &buf); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got := buf.String(); got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
